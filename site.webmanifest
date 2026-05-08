@@ -1,0 +1,10 @@
+{
+  "name": "TaxSwitch Investment Calculator",
+  "short_name": "TaxSwitch",
+  "description": "A mobile-first tax-aware stock rebalance calculator.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f7fb",
+  "theme_color": "#101626",
+  "icons": []
+}
