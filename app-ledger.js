@@ -15,6 +15,7 @@
     const shares = finiteNumber(lot && lot.shares, 0);
     const price = finiteNumber(lot && (lot.price ?? lot.buyPrice ?? lot.costPerShare), 0);
     const fees = finiteNumber(lot && lot.fees, 0);
+    const fxRateBuy = finiteNumber(lot && (lot.fxRateBuy ?? lot.buyFxRate ?? lot.fxRate), 1) || 1;
     return {
       id: (lot && lot.id) || `lot-${index + 1}`,
       acquiredAt: (lot && (lot.acquiredAt || lot.date)) || '',
@@ -22,6 +23,7 @@
       price: Math.max(price, 0),
       fees: Math.max(fees, 0),
       currency: (lot && lot.currency) || 'EUR',
+      fxRateBuy: Math.max(fxRateBuy, 0),
       meta: (lot && lot.meta) || null
     };
   }
@@ -56,6 +58,7 @@
         price,
         fees: tx.fees,
         currency: tx.currency,
+        fxRateBuy: tx.fxRateBuy || tx.fxRate,
         meta: tx
       }, lots.length));
     }
@@ -87,6 +90,7 @@
           price,
           fees: finiteNumber(tx.fees, 0),
           currency: tx.currency,
+          fxRateBuy: tx.fxRateBuy || tx.fxRate,
           meta: tx
         }, openLots.length));
       } else if (type === 'SELL' || type === 'TRANSFER_OUT') {
@@ -104,11 +108,35 @@
     return { lots: sortLotsFifo(openLots), errors: [] };
   }
 
+  function orderLotsForSale(lots, sale = {}) {
+    const order = String(sale.saleOrder || sale.order || 'fifo').toLowerCase();
+    const sorted = sortLotsFifo(lots);
+    const selectedIds = Array.isArray(sale.selectedLotIds || sale.lotIds)
+      ? (sale.selectedLotIds || sale.lotIds).map(id => String(id))
+      : [];
+    if (order === 'manual' || selectedIds.length) {
+      const selectedSet = new Set(selectedIds);
+      const selected = sorted.filter(lot => selectedSet.has(String(lot.id)));
+      if (selectedIds.length) {
+        selected.sort((a, b) => selectedIds.indexOf(String(a.id)) - selectedIds.indexOf(String(b.id)));
+      }
+      return selected;
+    }
+    if (order === 'highest-cost' || order === 'tax-efficient') {
+      return sorted.slice().sort((a, b) => b.price * (b.fxRateBuy || 1) - a.price * (a.fxRateBuy || 1));
+    }
+    if (order === 'lowest-cost') {
+      return sorted.slice().sort((a, b) => a.price * (a.fxRateBuy || 1) - b.price * (b.fxRateBuy || 1));
+    }
+    return sorted;
+  }
+
   function fifoSell(lots, sale) {
-    const orderedLots = sortLotsFifo(lots);
+    const orderedLots = orderLotsForSale(lots, sale);
     const sellShares = Math.max(finiteNumber(sale && sale.shares, 0), 0);
     const sellPrice = Math.max(finiteNumber(sale && sale.price, 0), 0);
     const saleFees = Math.max(finiteNumber(sale && sale.fees, 0), 0);
+    const saleFxRate = Math.max(finiteNumber(sale && (sale.fxRateNow ?? sale.saleFxRate ?? sale.fxRate), 1), 0) || 1;
     const requestedProceeds = sellShares * sellPrice;
     let remainingToSell = sellShares;
     let remainingFee = saleFees;
@@ -127,7 +155,12 @@
       const feeShare = requestedProceeds > 0 ? saleFees * (proceeds / requestedProceeds) : 0;
       remainingFee -= feeShare;
       const costBasis = soldShares * lot.price + lot.fees * shareRatio;
+      const lotFxRate = Math.max(finiteNumber(lot.fxRateBuy, 1), 0) || 1;
+      const proceedsTaxCurrency = proceeds * saleFxRate;
+      const saleFeesTaxCurrency = feeShare * saleFxRate;
+      const costBasisTaxCurrency = costBasis * lotFxRate;
       const gain = proceeds - feeShare - costBasis;
+      const gainTaxCurrency = proceedsTaxCurrency - saleFeesTaxCurrency - costBasisTaxCurrency;
 
       fills.push({
         lotId: lot.id,
@@ -135,9 +168,15 @@
         shares: soldShares,
         salePrice: sellPrice,
         proceeds,
+        proceedsTaxCurrency,
         saleFees: feeShare,
+        saleFeesTaxCurrency,
         costBasis,
-        gain
+        costBasisTaxCurrency,
+        gain,
+        gainTaxCurrency,
+        buyFxRate: lotFxRate,
+        saleFxRate
       });
 
       const sharesLeft = lot.shares - soldShares;
@@ -159,16 +198,22 @@
       const last = fills[fills.length - 1];
       last.saleFees += remainingFee;
       last.gain -= remainingFee;
+      last.saleFeesTaxCurrency += remainingFee * last.saleFxRate;
+      last.gainTaxCurrency -= remainingFee * last.saleFxRate;
     }
 
     const totals = fills.reduce((acc, fill) => {
       acc.shares += fill.shares;
       acc.proceeds += fill.proceeds;
+      acc.proceedsTaxCurrency += fill.proceedsTaxCurrency;
       acc.saleFees += fill.saleFees;
+      acc.saleFeesTaxCurrency += fill.saleFeesTaxCurrency;
       acc.costBasis += fill.costBasis;
+      acc.costBasisTaxCurrency += fill.costBasisTaxCurrency;
       acc.gain += fill.gain;
+      acc.gainTaxCurrency += fill.gainTaxCurrency;
       return acc;
-    }, { shares: 0, proceeds: 0, saleFees: 0, costBasis: 0, gain: 0 });
+    }, { shares: 0, proceeds: 0, proceedsTaxCurrency: 0, saleFees: 0, saleFeesTaxCurrency: 0, costBasis: 0, costBasisTaxCurrency: 0, gain: 0, gainTaxCurrency: 0 });
 
     return { fills, remainingLots, totals };
   }
@@ -188,27 +233,40 @@
       const result = fifoSell(lots, {
         shares: sale.quantity ?? sale.shares,
         price: sale.price ?? sale.currentPrice,
-        fees: sale.fees
+        fees: sale.fees,
+        fxRateNow: sale.fxRateNow,
+        saleOrder: sale.saleOrder,
+        selectedLotIds: sale.selectedLotIds || sale.lotIds
       });
       const taxRate = finiteNumber(options.taxRate, 0);
-      const taxableGain = Math.max(result.totals.gain, 0);
+      const useTaxCurrency = Number.isFinite(Number(sale.fxRateNow)) || result.fills.some(fill => Math.abs(fill.buyFxRate - 1) > 1e-10);
+      const rawGain = useTaxCurrency ? result.totals.gainTaxCurrency : result.totals.gain;
+      const taxableGain = Math.max(rawGain, 0);
       return {
         soldQuantity: result.totals.shares,
         proceeds: result.totals.proceeds,
-        proceedsTaxCurrency: result.totals.proceeds,
-        costBasis: result.totals.costBasis,
+        proceedsTaxCurrency: useTaxCurrency ? result.totals.proceedsTaxCurrency : result.totals.proceeds,
+        costBasis: useTaxCurrency ? result.totals.costBasisTaxCurrency : result.totals.costBasis,
+        costBasisPositionCurrency: result.totals.costBasis,
         taxableGain,
-        rawGain: result.totals.gain,
+        rawGain,
+        rawGainPositionCurrency: result.totals.gain,
         taxDue: taxableGain * taxRate,
-        saleFeesAllocated: result.totals.saleFees,
+        saleFeesAllocated: useTaxCurrency ? result.totals.saleFeesTaxCurrency : result.totals.saleFees,
+        saleFeesPositionCurrency: result.totals.saleFees,
         matches: result.fills.map(fill => ({
           lotId: fill.lotId,
           acquiredAt: fill.acquiredAt,
           quantity: fill.shares,
-          unitCost: fill.costBasis / Math.max(fill.shares, 1),
-          costBasis: fill.costBasis,
+          unitCost: (useTaxCurrency ? fill.costBasisTaxCurrency : fill.costBasis) / Math.max(fill.shares, 1),
+          costBasis: useTaxCurrency ? fill.costBasisTaxCurrency : fill.costBasis,
+          costBasisPositionCurrency: fill.costBasis,
           proceeds: fill.proceeds,
-          gain: fill.gain
+          proceedsTaxCurrency: fill.proceedsTaxCurrency,
+          gain: useTaxCurrency ? fill.gainTaxCurrency : fill.gain,
+          gainPositionCurrency: fill.gain,
+          buyFxRate: fill.buyFxRate,
+          saleFxRate: fill.saleFxRate
         })),
         remainingLots: result.remainingLots,
         warnings: [],
@@ -222,6 +280,7 @@
   return {
     normalizeLot,
     sortLotsFifo,
+    orderLotsForSale,
     buildLotsFromTransactions,
     buildOpenLotsFromTransactions,
     fifoSell,

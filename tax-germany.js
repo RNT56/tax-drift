@@ -67,7 +67,7 @@
 
     const capitalGainsTax = taxableGain * cfg.capitalGainsTaxRate;
     const solidaritySurcharge = capitalGainsTax * cfg.solidaritySurchargeRate;
-    const churchTax = taxableGain * cfg.churchTaxRate;
+    const churchTax = capitalGainsTax * cfg.churchTaxRate;
     const grossTax = capitalGainsTax + solidaritySurcharge + churchTax;
     const withholdingTaxCreditUsed = Math.min(grossTax, cfg.withholdingTaxCredit);
     const taxDue = Math.max(grossTax - withholdingTaxCreditUsed, 0);

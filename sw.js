@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'taxswitch-v6';
+const CACHE_VERSION = 'taxswitch-v8';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
@@ -7,6 +7,8 @@ const SHELL_ASSETS = [
   '/app-ledger.js',
   '/app-workspace.js',
   '/app-core.js',
+  '/app-decision.js',
+  '/app-research.js',
   '/app-ui.js',
   '/app.js',
   '/styles.css',

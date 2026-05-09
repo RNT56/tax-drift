@@ -49,7 +49,13 @@ function publicSymbolResult(item) {
     micCode: item.micCode || item.mic_code || '',
     country: item.country,
     currency: item.currency,
-    type: item.type
+    type: item.type,
+    provider: item.provider,
+    providerSymbol: item.providerSymbol,
+    twelvedataSymbol: item.twelvedataSymbol,
+    fmpSymbol: item.fmpSymbol,
+    eodhdSymbol: item.eodhdSymbol,
+    alphavantageSymbol: item.alphavantageSymbol
   };
 }
 

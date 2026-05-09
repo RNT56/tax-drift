@@ -20,7 +20,7 @@ function workspaceKey(userId, workspaceId) {
 function sanitizeWorkspaceInput(input = {}) {
   const name = clean(input.name || input.title, 'Untitled workspace').slice(0, 160);
   return {
-    schemaVersion: Number(input.schemaVersion) || 1,
+    schemaVersion: 2,
     name,
     baseCurrency: clean(input.baseCurrency, 'EUR').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) || 'EUR',
     taxCurrency: clean(input.taxCurrency, input.baseCurrency || 'EUR').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) || 'EUR',
@@ -28,10 +28,15 @@ function sanitizeWorkspaceInput(input = {}) {
     taxProfile: input.taxProfile && typeof input.taxProfile === 'object' ? input.taxProfile : { mode: 'flat' },
     positions: Array.isArray(input.positions) ? input.positions : [],
     scenarios: Array.isArray(input.scenarios) ? input.scenarios : [],
+    decisionCases: Array.isArray(input.decisionCases) ? input.decisionCases : [],
+    riskProfile: input.riskProfile && typeof input.riskProfile === 'object' ? input.riskProfile : {},
+    researchMemos: Array.isArray(input.researchMemos) ? input.researchMemos : [],
+    watchRules: Array.isArray(input.watchRules) ? input.watchRules : [],
+    portfolioExposure: input.portfolioExposure && typeof input.portfolioExposure === 'object' ? input.portfolioExposure : {},
+    assumptions: input.assumptions && typeof input.assumptions === 'object' ? input.assumptions : {},
     imports: Array.isArray(input.imports) ? input.imports : [],
     alertIds: Array.isArray(input.alertIds) ? input.alertIds : [],
     reportIds: Array.isArray(input.reportIds) ? input.reportIds : [],
-    assumptions: input.assumptions && typeof input.assumptions === 'object' ? input.assumptions : {},
     metadata: input.metadata && typeof input.metadata === 'object' ? input.metadata : {}
   };
 }

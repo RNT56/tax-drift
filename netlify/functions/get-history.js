@@ -1,8 +1,7 @@
-const { getConfiguredProviders, getLatestPrice, normalizeCurrency } = require('../lib/market-data-providers');
+const { getConfiguredProviders, getHistoricalPrices, normalizeCurrency } = require('../lib/market-data-providers');
 
-/* ── In-memory price cache ──────────────────────────────────────────── */
-const CACHE_MAX = 100;
-const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes — acceptable for a tax calculator
+const CACHE_MAX = 80;
+const CACHE_TTL_MS = 30 * 60 * 1000;
 const cache = new Map();
 
 function cacheGet(key) {
@@ -26,35 +25,28 @@ function cacheSet(key, value) {
   cache.set(key, { value, ts: Date.now() });
 }
 
-function publicPriceResult(result) {
+function publicHistoryResult(result) {
   const payload = {
     symbol: result.symbol,
     exchange: result.exchange,
     currency: result.currency,
-    price: result.price,
+    range: result.range,
     source: 'Market data',
     fetchedAt: result.fetchedAt,
-    converted: Boolean(result.converted)
+    converted: Boolean(result.converted),
+    points: Array.isArray(result.points)
+      ? result.points.map(point => ({
+        date: point.date,
+        close: point.close,
+        open: point.open,
+        high: point.high,
+        low: point.low,
+        volume: point.volume
+      }))
+      : []
   };
 
-  [
-    'open',
-    'high',
-    'low',
-    'previousClose',
-    'change',
-    'changePercent',
-    'volume',
-    'marketCap'
-  ].forEach((key) => {
-    if (Number.isFinite(result[key])) payload[key] = result[key];
-  });
-
-  if (result.latestTradingDay) payload.latestTradingDay = result.latestTradingDay;
-  if (result.exchangeTimezone) payload.exchangeTimezone = result.exchangeTimezone;
-
   if (result.converted) {
-    payload.originalPrice = result.originalPrice;
     payload.originalCurrency = result.originalCurrency;
     payload.fxRate = result.fxRate;
     payload.fxFromCurrency = result.fxFromCurrency;
@@ -64,7 +56,6 @@ function publicPriceResult(result) {
   return payload;
 }
 
-/* ── Helpers ───────────────────────────────────────────────────────── */
 const json = (statusCode, payload, cacheSeconds = 0) => ({
   statusCode,
   headers: {
@@ -76,10 +67,10 @@ const json = (statusCode, payload, cacheSeconds = 0) => ({
   body: JSON.stringify(payload)
 });
 
-/* ── Handler ───────────────────────────────────────────────────────── */
 exports.handler = async (event) => {
   const symbol = String(event.queryStringParameters?.symbol || '').trim();
   const exchange = String(event.queryStringParameters?.exchange || '').trim();
+  const range = String(event.queryStringParameters?.range || '1Y').trim().toUpperCase();
   const currency = normalizeCurrency(event.queryStringParameters?.currency);
   const sourceCurrency = normalizeCurrency(event.queryStringParameters?.sourceCurrency || event.queryStringParameters?.assetCurrency || currency);
 
@@ -92,25 +83,38 @@ exports.handler = async (event) => {
   if (!configuredProviders.length) {
     return json(503, {
       error: 'No market data API key configured.',
-      message: 'Live prices require configured market data. Enter the current price manually.'
+      message: 'Historical prices require configured market data.'
     });
   }
 
-  // Check server-side cache
   const providerToken = configuredProviders.map(provider => provider.id).join(',');
-  const cacheKey = `price:${symbol}:${exchange}:${sourceCurrency}:${currency}:${providerToken}`;
+  const cacheKey = [
+    'history',
+    symbol,
+    exchange,
+    sourceCurrency,
+    currency,
+    range,
+    event.queryStringParameters?.providerSymbol || '',
+    event.queryStringParameters?.twelvedataSymbol || '',
+    event.queryStringParameters?.fmpSymbol || '',
+    event.queryStringParameters?.eodhdSymbol || '',
+    event.queryStringParameters?.alphavantageSymbol || '',
+    providerToken
+  ].join(':');
   const cached = cacheGet(cacheKey);
   if (cached) {
-    return json(200, { ...cached, cached: true }, 60);
+    return json(200, { ...cached, cached: true }, 300);
   }
 
   try {
-    const { result, errors, providerCount } = await getLatestPrice({
+    const { result, errors, providerCount } = await getHistoricalPrices({
       symbol,
       exchange,
       micCode: event.queryStringParameters?.mic_code || event.queryStringParameters?.micCode || '',
       currency,
       sourceCurrency,
+      range,
       type: event.queryStringParameters?.type || '',
       providerSymbol: event.queryStringParameters?.providerSymbol || '',
       twelvedataSymbol: event.queryStringParameters?.twelvedataSymbol || '',
@@ -119,21 +123,21 @@ exports.handler = async (event) => {
       alphavantageSymbol: event.queryStringParameters?.alphavantageSymbol || ''
     });
 
-    if (!result) {
+    if (!result || !Array.isArray(result.points) || !result.points.length) {
       return json(422, {
-        error: 'Price unavailable for this instrument.',
-        message: `Price unavailable after checking configured market data. Enter the current price manually.`,
+        error: 'Historical prices unavailable for this instrument.',
+        message: 'History unavailable after checking configured market data.',
         errorCount: errors.length,
         checkedProviders: providerCount
       });
     }
 
-    const publicResult = publicPriceResult(result);
+    const publicResult = publicHistoryResult(result);
     cacheSet(cacheKey, publicResult);
-    return json(200, publicResult, 60);
+    return json(200, publicResult, 300);
   } catch (error) {
     return json(502, {
-      error: 'Market data request failed.',
+      error: 'Historical market data request failed.',
       message: error.message,
       source: 'Market data'
     });

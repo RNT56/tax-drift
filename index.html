@@ -191,7 +191,17 @@
         <!-- ── Multi-lot editor ────────────────────────────────── -->
         <details id="lotsDetails" class="lots-details">
           <summary>Multi-lot mode <span class="lots-count" id="lotsCount"></span></summary>
-          <p class="lots-hint">Add multiple purchase lots to compute a blended cost basis. When lots are added, the buy price field above shows the weighted average.</p>
+          <p class="lots-hint">Add purchase lots to compute basis and lot-level sale effects. Sale order is shown because it can materially change tax.</p>
+          <label class="field field--compact lot-order-field">
+            <span>Sale order assumption</span>
+            <select id="saleOrderSelect" aria-label="Sale order assumption">
+              <option value="fifo">FIFO / broker default</option>
+              <option value="manual">Manual selected lots</option>
+              <option value="tax-efficient">Tax-efficient estimate</option>
+              <option value="highest-cost">Highest cost first estimate</option>
+              <option value="lowest-cost">Lowest cost first estimate</option>
+            </select>
+          </label>
           <div id="lotsContainer" class="lots-container"></div>
           <div class="lots-actions">
             <button id="addLotBtn" type="button" class="ghost-button ghost-button--tight">+ Add lot</button>
@@ -319,6 +329,57 @@
               <input id="priorTaxedVorabpauschale" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Prior taxed Vorabpauschale">
               <em><span class="currencyUnit">EUR</span></em>
             </label>
+
+            <label class="field">
+              <span>Distribution policy</span>
+              <select id="distributionPolicy" aria-label="Fund distribution policy">
+                <option value="unknown">Unknown</option>
+                <option value="accumulating">Accumulating</option>
+                <option value="distributing">Distributing</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Fund domicile</span>
+              <input id="fundDomicile" type="text" autocomplete="off" placeholder="e.g. Ireland" aria-label="Fund domicile">
+              <em>ETF/fund</em>
+            </label>
+
+            <label class="field">
+              <span>Distribution yield</span>
+              <input id="annualDistributionYield" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Expected annual distribution yield">
+              <em>%</em>
+            </label>
+
+            <label class="field">
+              <span>Withholding tax</span>
+              <input id="withholdingTaxRate" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Dividend withholding tax rate">
+              <em>%</em>
+            </label>
+
+            <label class="field">
+              <span>TER</span>
+              <input id="totalExpenseRatio" type="text" inputmode="decimal" autocomplete="off" placeholder="0,20" aria-label="Total expense ratio">
+              <em>% p.a.</em>
+            </label>
+
+            <label class="field">
+              <span>Tracking diff.</span>
+              <input id="trackingDifference" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Tracking difference">
+              <em>% p.a.</em>
+            </label>
+
+            <label class="field">
+              <span>Fund currency exposure</span>
+              <input id="fundCurrencyExposure" type="text" autocomplete="off" placeholder="e.g. USD 65%, EUR 25%" aria-label="Fund currency exposure">
+              <em>ETF/fund</em>
+            </label>
+
+            <label class="field">
+              <span>Index methodology</span>
+              <input id="indexMethodology" type="text" autocomplete="off" placeholder="e.g. market-cap weighted" aria-label="Index methodology">
+              <em>ETF/fund</em>
+            </label>
           </div>
         </details>
 
@@ -404,6 +465,82 @@
             <span>New return</span>
             <input id="expectedNewReturn" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 12" aria-label="Expected new stock return">
             <em>%</em>
+          </label>
+        </div>
+
+        <div class="switch-target-panel" aria-labelledby="switchTargetTitle">
+          <div class="switch-target-panel__header">
+            <div>
+              <span>Switch target</span>
+              <h3 id="switchTargetTitle">To stock</h3>
+            </div>
+            <strong id="switchTargetReadiness">Manual target</strong>
+          </div>
+
+          <div class="instrument-search instrument-search--target">
+            <label class="field field--search">
+              <span>Search target symbol or name</span>
+              <input id="targetInstrumentSearch" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. MSFT, ASML, IWDA" aria-label="Search target stock, ETF or index">
+              <em>to buy</em>
+            </label>
+            <button id="clearTargetInstrumentSearch" type="button" class="icon-button" aria-label="Clear target instrument search">
+              <span class="icon-x" aria-hidden="true"></span>
+            </button>
+          </div>
+
+          <div id="targetInstrumentResults" class="instrument-results instrument-results--target" role="listbox" aria-label="Target instrument search results" hidden></div>
+
+          <article id="selectedTargetInstrument" class="selected-instrument selected-instrument--target" hidden>
+            <div class="selected-instrument__main">
+              <span class="asset-avatar" id="selectedTargetAvatar" aria-hidden="true">?</span>
+              <div>
+                <strong id="selectedTargetName">—</strong>
+                <span id="selectedTargetMeta">—</span>
+              </div>
+            </div>
+            <div class="selected-instrument__actions">
+              <button id="useLatestTargetPriceBtn" type="button" class="primary-button">Apply latest</button>
+              <button id="refreshTargetPriceBtn" type="button" class="icon-button icon-button--compact" aria-label="Refresh latest target price" hidden>
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M15 9A6 6 0 0 1 4.76 13.24M3 9A6 6 0 0 1 13.24 4.76M13.5 2.25V5.25H10.5M4.5 15.75V12.75H7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+              <button id="clearTargetInstrumentBtn" type="button" class="ghost-button ghost-button--tight">Clear</button>
+            </div>
+
+            <div id="targetPriceTimestamp" class="price-timestamp" hidden>
+              <span id="targetPriceSourceLabel">—</span>
+              <span id="targetPriceTimeLabel">—</span>
+            </div>
+
+            <p id="targetMarketDataStatus" class="market-status">Select a target to fetch its current price.</p>
+          </article>
+
+          <div class="field-grid field-grid--switch-target">
+            <label class="field">
+              <span>Target price</span>
+              <input id="switchTargetPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="auto or manual" aria-label="Target stock price per share">
+              <em><span class="currencyUnit">EUR</span> / share</em>
+            </label>
+
+            <label class="field">
+              <span>Buy cost</span>
+              <input id="switchBuyCost" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Additional buy cost for target stock">
+              <em><span class="currencyUnit">EUR</span></em>
+            </label>
+
+            <label class="field">
+              <span>Horizon</span>
+              <input id="switchHorizonYears" type="text" inputmode="decimal" autocomplete="off" placeholder="1" aria-label="Switch comparison horizon in years">
+              <em>years</em>
+            </label>
+          </div>
+
+          <label class="switch-row switch-row--compact" for="switchAllowFractional">
+            <span>
+              <strong>Allow fractional target shares</strong>
+              <small>Disable to map cash to whole shares and residual cash.</small>
+            </span>
+            <input id="switchAllowFractional" type="checkbox" checked>
+            <i aria-hidden="true"></i>
           </label>
         </div>
 
@@ -773,13 +910,42 @@
             <strong id="fvDifference">—</strong>
           </div>
 
+          <div id="switchAssetData" class="switch-asset-data" hidden></div>
+
+          <div id="switchTicket" class="switch-ticket" hidden></div>
+
+          <div id="switchComparisonTable" class="switch-comparison-table" hidden></div>
+
+          <div id="switchMapping" class="switch-mapping" hidden></div>
+
           <details class="chart-details">
-            <summary>Sensitivity chart</summary>
+            <summary>Charts</summary>
+            <div class="asset-performance">
+              <div class="asset-performance__header">
+                <div>
+                  <span>Actual performance</span>
+                  <strong>Selected assets</strong>
+                </div>
+                <div class="history-range" aria-label="History range">
+                  <button type="button" class="history-range__button" data-history-range="1M">1M</button>
+                  <button type="button" class="history-range__button" data-history-range="6M">6M</button>
+                  <button type="button" class="history-range__button is-active" data-history-range="1Y">1Y</button>
+                  <button type="button" class="history-range__button" data-history-range="5Y">5Y</button>
+                </div>
+              </div>
+              <canvas id="assetPerformanceChart" width="640" height="300" aria-label="Actual selected asset performance chart"></canvas>
+              <p id="assetPerformanceStatus" class="asset-performance__status">Select an instrument to load history.</p>
+            </div>
+            <div class="chart-subhead">
+              <span>Return sensitivity</span>
+              <strong>Hurdle curve</strong>
+            </div>
             <div class="chart-legend">
               <span><i class="legend-dot legend-dot--new"></i>Required new return</span>
               <span><i class="legend-dot legend-dot--old"></i>Old return reference</span>
             </div>
             <canvas id="returnChart" width="640" height="320" aria-label="Required new return chart"></canvas>
+            <div id="switchHeatmap" class="switch-heatmap" aria-label="Hold versus switch return heatmap"></div>
           </details>
         </article>
 
@@ -804,6 +970,11 @@
               <option value="tax-drag-above">Tax drag above</option>
               <option value="rebuy-break-even-reached">Rebuy break-even reached</option>
               <option value="switch-hurdle-reached">Switch hurdle reached</option>
+              <option value="price-above">Price above</option>
+              <option value="price-below">Price below</option>
+              <option value="target-reached">Target reached</option>
+              <option value="position-weight">Position weight above</option>
+              <option value="scenario-margin">Scenario margin above</option>
             </select>
             <input id="alertThreshold" type="text" inputmode="decimal" autocomplete="off" placeholder="Threshold" aria-label="Alert threshold">
             <button id="addAlertBtn" type="button" class="ghost-button ghost-button--tight">Add alert</button>
@@ -813,10 +984,134 @@
       </section>
       </div><!-- /.main-grid -->
 
+      <section class="panel decision-lab" aria-labelledby="decisionLabTitle">
+        <div class="section-heading">
+          <span class="section-number">06</span>
+          <div>
+            <h2 id="decisionLabTitle">Decision Lab</h2>
+            <p>Scenario analysis under your assumptions. No output is a recommendation to buy, sell or hold.</p>
+          </div>
+        </div>
+
+        <div class="decision-summary" id="decisionSummary" aria-live="polite"></div>
+
+        <details class="premium-details decision-inputs">
+          <summary>Decision assumptions</summary>
+          <div class="field-grid field-grid--two">
+            <label class="field">
+              <span>Target sell price</span>
+              <input id="targetSellPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 517" aria-label="Target sell price">
+              <em><span class="currencyUnit">EUR</span> / share</em>
+            </label>
+            <label class="field">
+              <span>Target probability</span>
+              <input id="targetReachProbability" type="text" inputmode="decimal" autocomplete="off" placeholder="55" aria-label="Probability target is reached">
+              <em>%</em>
+            </label>
+            <label class="field">
+              <span>Fresh cash</span>
+              <input id="freshCashAmount" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Fresh cash available">
+              <em><span class="currencyUnit">EUR</span></em>
+            </label>
+            <label class="field">
+              <span>Cash reserve</span>
+              <input id="cashReserve" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Cash reserve">
+              <em><span class="currencyUnit">EUR</span></em>
+            </label>
+            <label class="field">
+              <span>Max tolerable loss</span>
+              <input id="maxTolerableLoss" type="text" inputmode="decimal" autocomplete="off" placeholder="25" aria-label="Maximum tolerable loss">
+              <em>%</em>
+            </label>
+            <label class="field">
+              <span>Time horizon</span>
+              <input id="timeHorizonYears" type="text" inputmode="decimal" autocomplete="off" placeholder="1" aria-label="Time horizon years">
+              <em>years</em>
+            </label>
+            <label class="field">
+              <span>Sector exposure</span>
+              <input id="sectorExposure" type="text" autocomplete="off" placeholder="e.g. Consumer discretionary" aria-label="Sector exposure">
+            </label>
+            <label class="field">
+              <span>Country exposure</span>
+              <input id="countryExposure" type="text" autocomplete="off" placeholder="e.g. United States" aria-label="Country exposure">
+            </label>
+            <label class="field">
+              <span>Current volatility</span>
+              <input id="currentVolatility" type="text" inputmode="decimal" autocomplete="off" placeholder="scenario-estimated" aria-label="Current holding annualized volatility">
+              <em>% p.a.</em>
+            </label>
+            <label class="field">
+              <span>New volatility</span>
+              <input id="newVolatility" type="text" inputmode="decimal" autocomplete="off" placeholder="scenario-estimated" aria-label="New idea annualized volatility">
+              <em>% p.a.</em>
+            </label>
+            <label class="field">
+              <span>Portfolio volatility</span>
+              <input id="portfolioVolatility" type="text" inputmode="decimal" autocomplete="off" placeholder="15" aria-label="Portfolio annualized volatility">
+              <em>% p.a.</em>
+            </label>
+            <label class="field">
+              <span>Portfolio correlation</span>
+              <input id="correlationToPortfolio" type="text" inputmode="decimal" autocomplete="off" placeholder="60" aria-label="Correlation to the rest of portfolio">
+              <em>%</em>
+            </label>
+          </div>
+        </details>
+
+        <div class="decision-tabs" role="tablist" aria-label="Decision Lab tabs">
+          <button type="button" class="decision-tab is-active" data-decision-tab="scenarios" role="tab" aria-selected="true">Scenarios</button>
+          <button type="button" class="decision-tab" data-decision-tab="risk" role="tab" aria-selected="false">Portfolio Risk</button>
+          <button type="button" class="decision-tab" data-decision-tab="research" role="tab" aria-selected="false">Research Memo</button>
+          <button type="button" class="decision-tab" data-decision-tab="assumptions" role="tab" aria-selected="false">Assumptions</button>
+          <button type="button" class="decision-tab" data-decision-tab="alerts" role="tab" aria-selected="false">Alerts</button>
+          <button type="button" class="decision-tab" data-decision-tab="report" role="tab" aria-selected="false">Report</button>
+        </div>
+
+        <div id="decisionScenariosPanel" class="decision-tab-panel" data-decision-panel="scenarios">
+          <div id="scenarioCaseEditor" class="scenario-case-editor" aria-label="Probability weighted scenario cases"></div>
+          <div id="decisionScenarioResults" class="decision-grid" aria-live="polite"></div>
+          <div id="monteCarloSummary" class="monte-carlo-summary"></div>
+        </div>
+
+        <div id="decisionRiskPanel" class="decision-tab-panel" data-decision-panel="risk" hidden>
+          <div id="portfolioRiskMetrics" class="portfolio-risk-metrics"></div>
+          <div id="riskFlagList" class="risk-flag-list" aria-live="polite"></div>
+          <div id="riskCatalogList" class="risk-catalog-list"></div>
+        </div>
+
+        <div id="decisionResearchPanel" class="decision-tab-panel" data-decision-panel="research" hidden>
+          <label class="field field--wide">
+            <span>Thesis to test</span>
+            <input id="researchThesis" type="text" autocomplete="off" placeholder="e.g. Target stock can compound faster because cloud margins improve" aria-label="Research thesis">
+          </label>
+          <div class="workspace-actions workspace-actions--flush">
+            <button id="generateResearchMemoBtn" type="button" class="primary-button primary-button--small">Generate memo</button>
+          </div>
+          <div id="researchMemoStatus" class="workspace-status">No memo yet.</div>
+          <div id="researchMemoOutput" class="research-memo-output"></div>
+        </div>
+
+        <div id="decisionAssumptionsPanel" class="decision-tab-panel" data-decision-panel="assumptions" hidden>
+          <div id="assumptionQualityList" class="assumption-quality-list" aria-live="polite"></div>
+        </div>
+
+        <div id="decisionAlertsPanel" class="decision-tab-panel" data-decision-panel="alerts" hidden>
+          <div id="decisionWatchSuggestions" class="watch-suggestion-list"></div>
+        </div>
+
+        <div id="decisionReportPanel" class="decision-tab-panel" data-decision-panel="report" hidden>
+          <div class="workspace-actions workspace-actions--flush">
+            <button id="printDecisionReportBtn" type="button" class="ghost-button ghost-button--tight">Print report</button>
+          </div>
+          <pre id="decisionReportOutput" class="decision-report-output"></pre>
+        </div>
+      </section>
+
       <section class="info-card" aria-label="Tax assumption and disclaimer">
         <details>
           <summary>Tax assumption & limitations</summary>
-          <p>This tool assumes a flat tax on realized gains only. The default German preset is 26.375%, based on 25% capital gains tax plus solidarity surcharge. It does not model church tax, saver's allowance, partial ETF exemptions, loss offsets, broker-specific tax handling or automatic FX conversion. If you fetch a live price, make sure your buy price, current price and costs use the same displayed currency.</p>
+          <p>The default German preset is 26.375%, based on 25% capital gains tax plus solidarity surcharge. German detailed mode can model church tax, saver allowance, stock and other loss pots, ETF partial exemptions, prior taxed Vorabpauschale, foreign tax credits, FIFO lots and manual/live FX assumptions. It remains a planning tool; broker and tax-office treatment can differ.</p>
           <p>For source context, see <a href="https://taxsummaries.pwc.com/germany/individual/income-determination" target="_blank" rel="noopener noreferrer">PwC Germany tax summary</a> and <a href="https://germanpedia.com/capital-gains-tax-germany/" target="_blank" rel="noopener noreferrer">GermanPedia's German capital gains overview</a>.</p>
         </details>
       </section>
@@ -849,6 +1144,8 @@
   <script src="app-ledger.js" defer></script>
   <script src="app-workspace.js" defer></script>
   <script src="app-core.js" defer></script>
+  <script src="app-decision.js" defer></script>
+  <script src="app-research.js" defer></script>
   <script src="app-ui.js" defer></script>
   <script src="app.js" defer></script>
 </body>

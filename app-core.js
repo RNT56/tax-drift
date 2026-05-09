@@ -43,6 +43,11 @@ function formatShares(value) {
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 4 }).format(value);
 }
 
+function finiteNumber(value, fallback = NaN) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function clampTaxRate(v) { return Number.isFinite(v) ? Math.min(Math.max(v, 0), 0.95) : 0; }
 function clampReturn(v) { return Number.isFinite(v) ? Math.max(v, -0.9999) : NaN; }
 
@@ -60,20 +65,38 @@ function requiredGrossReturn(cashRatio, oldReturn, taxRate, includeTax) {
   return req / (1 - taxRate);
 }
 
+function hurdleTargetValue({ sellValue, oldReturn, taxRate, hurdleMode = 'beat-pretax', taxProfile } = {}) {
+  if (!Number.isFinite(sellValue) || sellValue < 0) return NaN;
+  const rOld = Number.isFinite(oldReturn) ? oldReturn : 0;
+  if (hurdleMode === 'reduce-risk' || hurdleMode === 'recover-drag') return sellValue;
+  if (hurdleMode === 'beat-posttax') {
+    if (taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined') {
+      return GermanTax.afterGermanTaxFutureValue(sellValue, rOld, taxProfile);
+    }
+    return afterTaxFutureValue(sellValue, rOld, taxRate, true);
+  }
+  return sellValue * (1 + rOld);
+}
+
+function requiredGrossReturnForInvestment({ investmentBase, residualCash = 0, targetValue, taxRate, includeTax, taxProfile } = {}) {
+  const base = Number.isFinite(investmentBase) ? investmentBase : NaN;
+  const residual = Number.isFinite(residualCash) ? Math.max(residualCash, 0) : 0;
+  if (!Number.isFinite(base) || base <= 0 || !Number.isFinite(targetValue)) return NaN;
+  const stockTargetValue = targetValue - residual;
+  if (stockTargetValue <= 0) return -0.9999;
+  if (taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined') {
+    return GermanTax.requiredGrossReturnDetailed({ cash: base, targetValue: stockTargetValue, profile: taxProfile });
+  }
+  const req = stockTargetValue / base - 1;
+  if (!includeTax || req <= 0) return req;
+  return req / (1 - taxRate);
+}
+
 function requiredReturnForMode({ cashAfter, sellValue, cashRatio, oldReturn, taxRate, includeTax, hurdleMode = 'beat-pretax', taxProfile } = {}) {
   if (!Number.isFinite(cashRatio) || cashRatio <= 0) return NaN;
   if (hurdleMode === 'reduce-risk') return 0;
 
-  let targetValue = sellValue * (1 + oldReturn);
-  if (hurdleMode === 'recover-drag') {
-    targetValue = sellValue;
-  } else if (hurdleMode === 'beat-posttax') {
-    if (taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined') {
-      targetValue = GermanTax.afterGermanTaxFutureValue(sellValue, oldReturn, taxProfile);
-    } else {
-      targetValue = afterTaxFutureValue(sellValue, oldReturn, taxRate, true);
-    }
-  }
+  const targetValue = hurdleTargetValue({ sellValue, oldReturn, taxRate, hurdleMode, taxProfile });
 
   if (taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined') {
     return GermanTax.requiredGrossReturnDetailed({ cash: cashAfter, targetValue, profile: taxProfile });
@@ -109,19 +132,22 @@ function calculateValues(input) {
   }
   const sellFraction = input.sellFraction ?? 1;
   const sellShares = input.shares * sellFraction;
-  const sellValue = sellShares * input.currentPrice;
-  const sellCostBasis = sellShares * input.buyPrice;
-  const currentValue = input.shares * input.currentPrice;
-  const costBasis = input.shares * input.buyPrice;
+  const fxNow = input.fxMode === 'manual' && Number.isFinite(input.fxRateNow) && input.fxRateNow > 0 ? input.fxRateNow : 1;
+  const fxBuy = input.fxMode === 'manual' && Number.isFinite(input.fxRateBuy) && input.fxRateBuy > 0 ? input.fxRateBuy : fxNow;
+  const usesManualFx = input.fxMode === 'manual' && Number.isFinite(fxNow) && fxNow > 0 && Number.isFinite(fxBuy) && fxBuy > 0;
+  const positionCurrency = normalizeCurrencyCode(input.positionCurrency || input.instrumentCurrency || input.currencyCode);
+  const valueCurrency = usesManualFx ? normalizeCurrencyCode(input.taxCurrency || input.currencyCode) : normalizeCurrencyCode(input.currencyCode);
+  const sellValuePosition = sellShares * input.currentPrice;
+  const sellCostBasisPosition = sellShares * input.buyPrice;
+  const currentValuePosition = input.shares * input.currentPrice;
+  const costBasisPosition = input.shares * input.buyPrice;
+  const sellValue = usesManualFx ? sellValuePosition * fxNow : sellValuePosition;
+  const sellCostBasis = usesManualFx ? sellCostBasisPosition * fxBuy : sellCostBasisPosition;
+  const currentValue = usesManualFx ? currentValuePosition * fxNow : currentValuePosition;
+  const costBasis = usesManualFx ? costBasisPosition * fxBuy : costBasisPosition;
   const rawGain = sellValue - sellCostBasis;
   const taxableGain = Math.max(rawGain, 0);
-  // FX adjustment
   let fxAdjustedTaxableGain = taxableGain;
-  if (input.fxMode === 'manual' && Number.isFinite(input.fxRateBuy) && Number.isFinite(input.fxRateNow)) {
-    const sellValueTax = sellValue * input.fxRateNow;
-    const sellCostTax = sellCostBasis * input.fxRateBuy;
-    fxAdjustedTaxableGain = Math.max(sellValueTax - sellCostTax, 0);
-  }
   let taxBreakdown = null;
   if (input.lotSaleResult && !input.lotSaleResult.errors?.length) {
     fxAdjustedTaxableGain = input.lotSaleResult.taxableGain;
@@ -134,9 +160,12 @@ function calculateValues(input) {
     });
   }
   const taxDue = taxBreakdown ? taxBreakdown.taxDue : (input.lotSaleResult?.taxDue ?? fxAdjustedTaxableGain * input.taxRate);
-  const costsPortion = input.transactionCost * sellFraction;
+  const costsPortionPosition = input.transactionCost * sellFraction;
+  const costsPortion = usesManualFx ? costsPortionPosition * fxNow : costsPortionPosition;
   const cashAfter = Math.max(sellValue - taxDue - costsPortion, 0);
-  const breakEvenPrice = sellShares > 0 ? cashAfter / sellShares : NaN;
+  const cashAfterPosition = usesManualFx ? cashAfter / fxNow : cashAfter;
+  const breakEvenPrice = sellShares > 0 ? cashAfterPosition / sellShares : NaN;
+  const breakEvenPriceValueCurrency = sellShares > 0 ? cashAfter / sellShares : NaN;
   const requiredDrop = input.currentPrice - breakEvenPrice;
   const requiredDropPct = input.currentPrice > 0 ? requiredDrop / input.currentPrice : NaN;
   const cashRatio = sellValue > 0 ? cashAfter / sellValue : NaN;
@@ -157,9 +186,140 @@ function calculateValues(input) {
     : afterTaxFutureValue(cashAfter, input.expectedNewReturn, input.taxRate, input.includeTaxOnNew);
   const futureDifference = futureValueNew - futureValueOld;
   const remainingShares = input.shares - sellShares;
-  const remainingValue = remainingShares * input.currentPrice;
+  const remainingValuePosition = remainingShares * input.currentPrice;
+  const remainingValue = usesManualFx ? remainingValuePosition * fxNow : remainingValuePosition;
+  const stockReturnTaxCurrency = costBasis > 0 ? (currentValue - costBasis) / costBasis : NaN;
+  const stockReturnPositionCurrency = costBasisPosition > 0 ? (currentValuePosition - costBasisPosition) / costBasisPosition : NaN;
+  const fxReturn = usesManualFx && fxBuy > 0 ? fxNow / fxBuy - 1 : 0;
 
-  return { currentValue, costBasis, rawGain, taxableGain: taxBreakdown?.taxableGain ?? fxAdjustedTaxableGain, taxBreakdown, taxDue, cashAfter, breakEvenPrice, requiredDrop, requiredDropPct, cashRatio, requiredNewReturn: rNewReturn, requiredExcessReturn, futureValueOld, futureValueNew, futureDifference, sellShares, sellValue, remainingShares, remainingValue, lotSaleResult: input.lotSaleResult || null };
+  return {
+    currentValue,
+    costBasis,
+    currentValuePosition,
+    costBasisPosition,
+    rawGain,
+    taxableGain: taxBreakdown?.taxableGain ?? fxAdjustedTaxableGain,
+    taxBreakdown,
+    taxDue,
+    taxDueValueCurrency: taxDue,
+    cashAfter,
+    cashAfterPosition,
+    breakEvenPrice,
+    breakEvenPriceValueCurrency,
+    requiredDrop,
+    requiredDropPct,
+    cashRatio,
+    requiredNewReturn: rNewReturn,
+    requiredExcessReturn,
+    futureValueOld,
+    futureValueNew,
+    futureDifference,
+    sellShares,
+    sellValue,
+    sellValuePosition,
+    sellCostBasis,
+    sellCostBasisPosition,
+    costsPortion,
+    costsPortionPosition,
+    remainingShares,
+    remainingValue,
+    remainingValuePosition,
+    valueCurrency,
+    positionCurrency,
+    taxCurrency: valueCurrency,
+    fxRateBuy: usesManualFx ? fxBuy : 1,
+    fxRateNow: usesManualFx ? fxNow : 1,
+    fxReturn,
+    stockReturnTaxCurrency,
+    stockReturnPositionCurrency,
+    lotSaleResult: input.lotSaleResult || null
+  };
+}
+
+function calculateSwitchUpgrade(input, output = calculateValues(input)) {
+  if (!hasCoreInputs(input) || !Number.isFinite(output.sellValue) || output.sellValue <= 0) {
+    return {
+      isValid: false,
+      hasTargetPrice: false,
+      sellCost: NaN,
+      buyCost: NaN,
+      investableCash: NaN,
+      targetShares: NaN,
+      targetInvested: NaN,
+      residualCash: NaN,
+      requiredTargetReturn: NaN,
+      requiredExcessReturn: NaN,
+      futureValueOld: NaN,
+      futureValueNew: NaN,
+      futureDifference: NaN,
+      returnMargin: NaN,
+      expectedGainAmount: NaN
+    };
+  }
+
+  const sellFraction = Number.isFinite(input.sellFraction) ? input.sellFraction : 1;
+  const sellCost = Math.max(input.transactionCost || 0, 0) * sellFraction;
+  const buyCost = Math.max(finiteNumber(input.switchBuyCost, 0), 0);
+  const investableCash = Math.max(output.cashAfter - buyCost, 0);
+  const targetPrice = finiteNumber(input.switchTargetPrice, NaN);
+  const hasTargetPrice = Number.isFinite(targetPrice) && targetPrice > 0;
+  const allowFractional = input.switchAllowFractional !== false;
+  const rawTargetShares = hasTargetPrice ? investableCash / targetPrice : NaN;
+  const targetShares = hasTargetPrice
+    ? (allowFractional ? rawTargetShares : Math.floor(rawTargetShares))
+    : NaN;
+  const targetInvested = hasTargetPrice ? Math.max(targetShares * targetPrice, 0) : investableCash;
+  const residualCash = hasTargetPrice ? Math.max(investableCash - targetInvested, 0) : 0;
+  const targetValue = hurdleTargetValue({
+    sellValue: output.sellValue,
+    oldReturn: input.expectedOldReturn,
+    taxRate: input.taxRate,
+    hurdleMode: input.hurdleMode,
+    taxProfile: input.taxProfile
+  });
+  const requiredTargetReturn = input.hurdleMode === 'reduce-risk'
+    ? 0
+    : requiredGrossReturnForInvestment({
+      investmentBase: targetInvested,
+      residualCash,
+      targetValue,
+      taxRate: input.taxRate,
+      includeTax: input.includeTaxOnNew,
+      taxProfile: input.taxProfile
+    });
+  const futureValueNew = input.taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined'
+    ? GermanTax.afterGermanTaxFutureValue(targetInvested, input.expectedNewReturn, input.taxProfile) + residualCash
+    : afterTaxFutureValue(targetInvested, input.expectedNewReturn, input.taxRate, input.includeTaxOnNew) + residualCash;
+  const futureDifference = futureValueNew - output.futureValueOld;
+  const returnMargin = Number.isFinite(input.expectedNewReturn) && Number.isFinite(requiredTargetReturn)
+    ? input.expectedNewReturn - requiredTargetReturn
+    : NaN;
+  const expectedGainAmount = Number.isFinite(futureValueNew)
+    ? futureValueNew - investableCash
+    : NaN;
+  const requiredExcessReturn = requiredTargetReturn - input.expectedOldReturn;
+
+  return {
+    isValid: true,
+    hasTargetPrice,
+    sellCost,
+    buyCost,
+    investableCash,
+    targetPrice,
+    rawTargetShares,
+    targetShares,
+    targetInvested,
+    residualCash,
+    targetValue,
+    requiredTargetReturn,
+    requiredExcessReturn,
+    futureValueOld: output.futureValueOld,
+    futureValueNew,
+    futureDifference,
+    returnMargin,
+    expectedGainAmount,
+    allowFractional
+  };
 }
 
 /* ── Rebalance calculation ─────────────────────────────────────────── */
@@ -185,7 +345,7 @@ function localSearchSymbols(query, limit = 10) {
 }
 
 /* ── URL state encoding/decoding ───────────────────────────────────── */
-const STATE_KEYS = ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','includeTaxOnNew','currencyCode','sellPct','portfolioValue','targetWeight','fxMode','positionCurrency','taxCurrency','fxRateBuy','fxRateNow'];
+const STATE_KEYS = ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','includeTaxOnNew','currencyCode','sellPct','portfolioValue','targetWeight','fxMode','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','switchTargetPrice','switchBuyCost','switchHorizonYears','switchAllowFractional'];
 
 function encodeStateToURL(els) {
   const p = new URLSearchParams();
@@ -206,6 +366,10 @@ function encodeStateToURL(els) {
   if (val('taxCurrency')) p.set('taxCurrency', val('taxCurrency'));
   if (val('fxRateBuy')) p.set('fxRateBuy', val('fxRateBuy'));
   if (val('fxRateNow')) p.set('fxRateNow', val('fxRateNow'));
+  if (val('switchTargetPrice')) p.set('targetPrice', val('switchTargetPrice'));
+  if (val('switchBuyCost')) p.set('switchBuyCost', val('switchBuyCost'));
+  if (val('switchHorizonYears')) p.set('horizon', val('switchHorizonYears'));
+  p.set('fractional', document.getElementById('switchAllowFractional')?.checked ? '1' : '0');
   // Clean empty params
   for (const [k, v] of [...p.entries()]) { if (!v) p.delete(k); }
   return p.toString();
@@ -230,11 +394,19 @@ function decodeStateFromURL() {
   set('taxCurrency', 'taxCurrency');
   set('fxRateBuy', 'fxRateBuy');
   set('fxRateNow', 'fxRateNow');
+  set('switchTargetPrice', 'targetPrice');
+  set('switchBuyCost', 'switchBuyCost');
+  set('switchHorizonYears', 'horizon');
+  const fractional = p.get('fractional');
+  if (fractional !== null && document.getElementById('switchAllowFractional')) {
+    document.getElementById('switchAllowFractional').checked = fractional !== '0';
+  }
   return true;
 }
 
 /* ── CSV Export ─────────────────────────────────────────────────────── */
 function generateCSV(input, output) {
+  const switchOutput = calculateSwitchUpgrade(input, output);
   const rows = [
     ['TaxSwitch Report', new Date().toLocaleString('de-DE')],
     [],
@@ -249,7 +421,13 @@ function generateCSV(input, output) {
     ['Taxable gain', output.taxableGain], ['Tax due', output.taxDue],
     ['Cash after sale', output.cashAfter], ['Break-even rebuy price', output.breakEvenPrice],
     ['Required drop', formatPercent(output.requiredDropPct)],
-    ['Required new return', formatPercent(output.requiredNewReturn)],
+    ['Required new return', formatPercent(switchOutput.requiredTargetReturn)],
+    ['Switch target price', input.switchTargetPrice],
+    ['Switch target shares', switchOutput.targetShares],
+    ['Switch invested value', switchOutput.targetInvested],
+    ['Switch residual cash', switchOutput.residualCash],
+    ['Switch future value', switchOutput.futureValueNew],
+    ['Switch future difference', switchOutput.futureDifference],
     [],
     ['Disclaimer'],
     ['This is not financial advice. Tax calculation is simplified and may not reflect your actual tax situation.']
@@ -276,10 +454,13 @@ if (typeof module === 'object' && module.exports) {
     clampReturn,
     afterTaxFutureValue,
     requiredGrossReturn,
+    hurdleTargetValue,
+    requiredGrossReturnForInvestment,
     requiredReturnForMode,
     blendLots,
     hasCoreInputs,
     calculateValues,
+    calculateSwitchUpgrade,
     calculateRebalance,
     localSearchSymbols,
     encodeStateToURL,

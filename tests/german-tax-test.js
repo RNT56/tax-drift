@@ -46,6 +46,16 @@ function close(actual, expected, epsilon = 1e-9) {
 }
 
 {
+  const tax = TaxGermany.calculateGermanCapitalGainsTax(1000, {
+    saverAllowance: 0,
+    churchTaxRate: 0.08
+  });
+
+  close(tax.churchTax, 1000 * 0.25 * 0.08);
+  close(tax.taxDue, 1000 * 0.25 * 1.055 + 1000 * 0.25 * 0.08);
+}
+
+{
   const context = { globalThis: {} };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'tax-germany.js'), 'utf8'), context);

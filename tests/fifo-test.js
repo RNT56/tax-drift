@@ -48,4 +48,40 @@ const lots = [
   close(result.lots[0].price, 30);
 }
 
+{
+  const fxSale = Ledger.calculateFifoSale([
+    { id: 'cheap', acquiredAt: '2020-01-01', shares: 2, price: 100, fxRateBuy: 0.8 },
+    { id: 'expensive', acquiredAt: '2021-01-01', shares: 2, price: 140, fxRateBuy: 0.9 }
+  ], { shares: 2, price: 160, fxRateNow: 0.95, saleOrder: 'tax-efficient' }, { taxRate: 0.25 });
+
+  assert.equal(fxSale.matches[0].lotId, 'expensive');
+  close(fxSale.proceedsTaxCurrency, 2 * 160 * 0.95);
+  close(fxSale.costBasis, 2 * 140 * 0.9);
+  close(fxSale.rawGain, 2 * 160 * 0.95 - 2 * 140 * 0.9);
+}
+
+{
+  const manual = Ledger.calculateFifoSale(lots, {
+    shares: 5,
+    price: 50,
+    saleOrder: 'manual',
+    selectedLotIds: ['newer']
+  }, { taxRate: 0.25 });
+
+  assert.deepEqual(manual.matches.map(match => match.lotId), ['newer']);
+  close(manual.costBasisPositionCurrency, 5 * 30 + 1.5);
+  close(manual.remainingLots.find(lot => lot.id === 'newer').shares, 5);
+}
+
+{
+  const manualTooSmall = Ledger.calculateFifoSale(lots, {
+    shares: 9,
+    price: 50,
+    saleOrder: 'manual',
+    selectedLotIds: ['middle']
+  }, { taxRate: 0.25 });
+
+  assert.match(manualTooSmall.errors[0], /Cannot sell 9 shares/);
+}
+
 console.log('FIFO tests passed');

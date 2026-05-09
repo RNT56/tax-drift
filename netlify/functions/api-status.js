@@ -32,6 +32,8 @@ exports.handler = async () => {
     features: {
       symbolSearch: hasLiveProvider ? 'multi-provider' : 'fallback',
       latestPrice: hasLiveProvider ? 'available' : 'unavailable',
+      latestQuoteFields: hasLiveProvider ? 'available' : 'unavailable',
+      priceHistory: hasLiveProvider ? 'available' : 'unavailable',
       globalCoverage: hasLiveProvider ? 'broad' : 'limited',
       identity: 'configured-by-deployment',
       blobStore,

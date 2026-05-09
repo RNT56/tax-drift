@@ -298,7 +298,7 @@
   function createWorkspace(overrides = {}) {
     const now = new Date().toISOString();
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       id: overrides.id || `workspace-${Date.now().toString(36)}`,
       ownerId: overrides.ownerId || null,
       name: overrides.name || 'TaxSwitch Workspace',
@@ -310,6 +310,12 @@
       activeScenarioId: overrides.activeScenarioId || overrides.scenarios?.[0]?.id || null,
       positions: overrides.positions || [],
       scenarios: overrides.scenarios || [],
+      decisionCases: overrides.decisionCases || [],
+      riskProfile: overrides.riskProfile || {},
+      researchMemos: overrides.researchMemos || [],
+      watchRules: overrides.watchRules || overrides.alerts || [],
+      portfolioExposure: overrides.portfolioExposure || {},
+      assumptions: overrides.assumptions || {},
       imports: overrides.imports || [],
       alertIds: overrides.alertIds || [],
       reportIds: overrides.reportIds || []
@@ -324,9 +330,14 @@
       calculationVersion: metadata.calculationVersion || 'premium-v1',
       inputs: input,
       marketData: metadata.marketData || {},
+      switchMarketData: metadata.switchMarketData || {},
+      marketHistory: metadata.marketHistory || {},
       fxData: output.fx || metadata.fxData || {},
       taxProfile: input.taxProfile || {},
       positions: metadata.positions || [],
+      decisionResult: metadata.decisionResult || null,
+      researchMemos: metadata.researchMemos || [],
+      assumptions: metadata.assumptions || {},
       lotsConsumed: output.lotSaleResult?.matches || output.lots || output.matches || [],
       taxBreakdown: output.taxBreakdown || {},
       optimizerResult: metadata.optimizerResult || null,
@@ -542,7 +553,7 @@
         const sellValue = finiteNumber(output.sellValue, 0);
         value = sellValue > 0 ? finiteNumber(output.taxDue, 0) / sellValue : NaN;
       }
-      if (rule.type === 'rebuy-break-even-reached') {
+      if (rule.type === 'rebuy-break-even-reached' || rule.type === 'rebuy-break-even') {
         value = finiteNumber(input.rebuyPrice, NaN);
         return {
           ...rule,
@@ -550,7 +561,31 @@
           triggered: Number.isFinite(value) && Number.isFinite(output.breakEvenPrice) && value <= output.breakEvenPrice
         };
       }
-      if (rule.type === 'switch-hurdle-reached') value = finiteNumber(input.expectedNewReturn, NaN);
+      if (rule.type === 'switch-hurdle-reached' || rule.type === 'switch-hurdle') {
+        value = finiteNumber(input.expectedNewReturn, NaN);
+        const hurdle = finiteNumber(output.requiredNewReturn, NaN);
+        return {
+          ...rule,
+          lastValue: value,
+          triggered: Number.isFinite(value) && Number.isFinite(hurdle) && value >= hurdle
+        };
+      }
+      if (rule.type === 'target-reached') {
+        value = finiteNumber(marketSnapshot.price ?? input.currentPrice, NaN);
+        const target = finiteNumber(rule.threshold || input.targetSellPrice, NaN);
+        return {
+          ...rule,
+          lastValue: value,
+          triggered: Number.isFinite(value) && Number.isFinite(target) && value >= target
+        };
+      }
+      if (rule.type === 'position-weight') {
+        const portfolioValue = finiteNumber(input.portfolioValue, NaN);
+        value = portfolioValue > 0 ? finiteNumber(output.currentValue, 0) / portfolioValue : NaN;
+      }
+      if (rule.type === 'scenario-margin') {
+        value = finiteNumber(marketSnapshot.scenarioMargin ?? input.scenarioMargin, NaN);
+      }
       if (rule.type === 'price-above' || rule.type === 'price-below') {
         value = finiteNumber(marketSnapshot.price ?? input.currentPrice, NaN);
       }

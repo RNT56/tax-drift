@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const Workspace = require('../app-workspace');
-const { runScheduledAlertCheck } = require('../netlify/lib/alert-store');
+const { resolveDecisionMetric, runScheduledAlertCheck } = require('../netlify/lib/alert-store');
 
 {
   const alerts = Workspace.buildAlerts({
@@ -50,6 +50,48 @@ const { runScheduledAlertCheck } = require('../netlify/lib/alert-store');
   assert.equal(result.triggeredAlerts, 1);
   assert.equal(result.events[0].symbol, 'SAP');
   assert.equal(updates.length, 2);
+
+  const decisionSnapshot = {
+    scenarioAnalysis: { expectedMargin: 1250 },
+    tradeScenarios: [{ id: 'sell-switch', requiredNewReturn: 0.12 }],
+    taxLossHarvesting: { estimatedTaxValue: 275 }
+  };
+  assert.equal(resolveDecisionMetric('scenario-margin', { decisionSnapshot }), 1250);
+  assert.equal(resolveDecisionMetric('switch-hurdle', { decisionSnapshot }), 0.12);
+  assert.equal(resolveDecisionMetric('tax-loss-value', { decisionSnapshot }), 275);
+
+  const decisionResult = await runScheduledAlertCheck({
+    alerts: [
+      {
+        id: 'a3',
+        userId: 'u1',
+        symbol: 'TSLA',
+        metric: 'scenario-margin',
+        direction: 'above',
+        threshold: 1000,
+        enabled: true,
+        metadata: { decisionSnapshot }
+      },
+      {
+        id: 'a4',
+        userId: 'u1',
+        symbol: 'TSLA',
+        metric: 'position-weight',
+        direction: 'above',
+        threshold: 0.3,
+        enabled: true,
+        workspaceId: 'w1'
+      }
+    ],
+    workspaceProvider: async () => ({
+      inputs: { portfolioValue: 10000 },
+      output: { currentValue: 4200 },
+      decisionResult: decisionSnapshot
+    }),
+    alertStore: { update: async () => null }
+  });
+  assert.equal(decisionResult.triggeredAlerts, 2);
+  assert.equal(decisionResult.events[0].metric, 'scenario-margin');
   console.log('Alert tests passed');
 })().catch((error) => {
   console.error(error);

@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const TaxCore = require('../app-core.js');
 
 function requiredGrossReturn(cashRatio, oldReturn, taxRate, includeTaxOnGain) {
   if (!Number.isFinite(cashRatio) || cashRatio <= 0) return NaN;
@@ -179,4 +180,62 @@ function close(actual, expected, epsilon = 1e-6) {
   close(r.remainingValue, 800);
 }
 
-console.log('Math smoke tests passed. (10 tests)');
+// ── Test 11: Switch target with buy cost and whole-share residual ──
+{
+  const input = {
+    shares: 5,
+    buyPrice: 100,
+    currentPrice: 200,
+    taxRate: 0.26375,
+    transactionCost: 0,
+    expectedOldReturn: 0,
+    expectedNewReturn: 0.20,
+    includeTaxOnNew: true,
+    sellFraction: 1,
+    switchTargetPrice: 300,
+    switchBuyCost: 10,
+    switchAllowFractional: false,
+    taxProfile: { mode: 'flat' }
+  };
+  const output = TaxCore.calculateValues(input);
+  const sw = TaxCore.calculateSwitchUpgrade(input, output);
+  close(output.cashAfter, 868.125);
+  close(sw.investableCash, 858.125);
+  close(sw.targetShares, 2);
+  close(sw.targetInvested, 600);
+  close(sw.residualCash, 258.125);
+  close(sw.requiredTargetReturn, ((1000 - 258.125) / 600 - 1) / (1 - 0.26375));
+  close(sw.futureValueNew, 600 * (1 + 0.20 * (1 - 0.26375)) + 258.125);
+}
+
+// ── Test 12: Fractional switch invests all available cash ──
+{
+  const input = {
+    shares: 10,
+    buyPrice: 80,
+    currentPrice: 120,
+    taxRate: 0.25,
+    transactionCost: 12,
+    expectedOldReturn: 0.05,
+    expectedNewReturn: 0.12,
+    includeTaxOnNew: false,
+    sellFraction: 0.5,
+    switchTargetPrice: 40,
+    switchBuyCost: 4,
+    switchAllowFractional: true,
+    taxProfile: { mode: 'flat' }
+  };
+  const output = TaxCore.calculateValues(input);
+  const sw = TaxCore.calculateSwitchUpgrade(input, output);
+  close(output.sellValue, 600);
+  close(output.taxDue, 50);
+  close(output.cashAfter, 544);
+  close(sw.investableCash, 540);
+  close(sw.targetShares, 13.5);
+  close(sw.targetInvested, 540);
+  close(sw.residualCash, 0);
+  close(sw.requiredTargetReturn, (600 * 1.05) / 540 - 1);
+  close(sw.futureValueNew, 540 * 1.12);
+}
+
+console.log('Math smoke tests passed. (12 tests)');

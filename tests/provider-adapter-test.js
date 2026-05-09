@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { getLatestPrice, searchLiveProviders } = require('../netlify/lib/market-data-providers');
+const { getHistoricalPrices, getLatestPrice, searchLiveProviders } = require('../netlify/lib/market-data-providers');
 
 const originalFetch = global.fetch;
 const originalInfo = console.info;
@@ -80,6 +80,62 @@ async function withMockFetch(mock, run) {
     const { results } = await searchLiveProviders('Strategy', 5, { FMP_API_KEY: 'fmp-key' });
     assert.equal(results[0].symbol, 'MSTR');
     assert.equal(results[0].provider, 'fmp');
+  });
+
+  await withMockFetch(async (url) => {
+    const parsed = new URL(String(url));
+    if (parsed.hostname === 'financialmodelingprep.com' && parsed.pathname === '/stable/quote') {
+      return jsonResponse([{
+        symbol: 'TSLA',
+        price: 100,
+        open: 97,
+        dayHigh: 102,
+        dayLow: 96,
+        previousClose: 95,
+        change: 5,
+        changesPercentage: 5.263,
+        volume: 1234567,
+        marketCap: 987654321
+      }]);
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  }, async () => {
+    const { result } = await getLatestPrice(
+      { symbol: 'TSLA', exchange: 'NASDAQ', currency: 'USD' },
+      { FMP_API_KEY: 'fmp-key' }
+    );
+
+    assert.equal(result.price, 100);
+    assert.equal(result.previousClose, 95);
+    assert.equal(result.high, 102);
+    assert.equal(result.low, 96);
+    assert.equal(result.volume, 1234567);
+    assert.ok(Math.abs(result.changePercent - 0.05263) < 1e-9);
+  });
+
+  await withMockFetch(async (url) => {
+    const parsed = new URL(String(url));
+    if (parsed.hostname === 'financialmodelingprep.com' && parsed.pathname === '/api/v3/historical-price-full/TSLA') {
+      return jsonResponse({
+        symbol: 'TSLA',
+        historical: [
+          { date: '2025-01-03', close: 104, volume: 3000 },
+          { date: '2025-01-02', close: 102, volume: 2000 },
+          { date: '2025-01-01', close: 100, volume: 1000 }
+        ]
+      });
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  }, async () => {
+    const { result } = await getHistoricalPrices(
+      { symbol: 'TSLA', exchange: 'NASDAQ', sourceCurrency: 'USD', currency: 'USD', range: '5Y' },
+      { FMP_API_KEY: 'fmp-key' }
+    );
+
+    assert.equal(result.provider, 'fmp');
+    assert.equal(result.points.length, 3);
+    assert.equal(result.points[0].date, '2025-01-01');
+    assert.equal(result.points[2].close, 104);
   });
 
   console.log('Provider adapter tests passed');

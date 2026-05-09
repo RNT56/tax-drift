@@ -59,8 +59,55 @@ function normalizeCurrencyOrDefault(value, fallback = 'EUR') {
 }
 
 function parsePositiveNumber(value) {
-  const number = Number(value);
+  const number = parseNumber(value);
   return Number.isFinite(number) && number > 0 ? number : NaN;
+}
+
+function parseNumber(value) {
+  if (value === null || value === undefined || value === '') return NaN;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
+  const normalized = String(value).replace(/[%,$\s]/g, '').replace(',', '.');
+  const number = Number(normalized);
+  return Number.isFinite(number) ? number : NaN;
+}
+
+function parsePercentFraction(value) {
+  const number = parseNumber(value);
+  return Number.isFinite(number) ? number / 100 : NaN;
+}
+
+function definedNumber(value) {
+  const number = parseNumber(value);
+  return Number.isFinite(number) ? number : undefined;
+}
+
+function isoFromTimestamp(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) return '';
+  const millis = number < 10_000_000_000 ? number * 1000 : number;
+  const date = new Date(millis);
+  return Number.isFinite(date.getTime()) ? date.toISOString() : '';
+}
+
+function withOptionalQuoteFields(base, fields = {}) {
+  const result = { ...base };
+  [
+    ['open', fields.open],
+    ['high', fields.high],
+    ['low', fields.low],
+    ['previousClose', fields.previousClose],
+    ['change', fields.change],
+    ['volume', fields.volume],
+    ['marketCap', fields.marketCap]
+  ].forEach(([key, value]) => {
+    const parsed = definedNumber(value);
+    if (parsed !== undefined) result[key] = parsed;
+  });
+  const changePercent = parsePercentFraction(fields.changePercent);
+  if (Number.isFinite(changePercent)) result.changePercent = changePercent;
+  if (fields.latestTradingDay) result.latestTradingDay = clean(fields.latestTradingDay);
+  if (fields.exchangeTimezone) result.exchangeTimezone = clean(fields.exchangeTimezone);
+  return result;
 }
 
 function getProviderSymbol(params, providerId) {
@@ -244,23 +291,33 @@ function inferEodhdSymbol(params) {
 
 async function getTwelveDataPrice(params, apiKey) {
   const symbol = getProviderSymbol(params, 'twelvedata');
-  const url = new URL('https://api.twelvedata.com/price');
+  const url = new URL('https://api.twelvedata.com/quote');
   url.searchParams.set('symbol', symbol);
   url.searchParams.set('dp', '6');
   if (params.exchange) url.searchParams.set('exchange', params.exchange);
   const payload = await fetchJson(url, { Authorization: `apikey ${apiKey}` });
-  const price = parsePositiveNumber(payload.price);
-  if (!Number.isFinite(price)) throw new Error('Twelve Data did not return a valid price.');
-  return {
+  const price = parsePositiveNumber(payload.close ?? payload.price);
+  if (!Number.isFinite(price)) throw new Error('Twelve Data did not return a valid quote price.');
+  return withOptionalQuoteFields({
     symbol: params.symbol,
     providerSymbol: symbol,
-    exchange: params.exchange,
-    currency: normalizeCurrencyOrDefault(params.sourceCurrency || params.currency, 'USD'),
+    exchange: params.exchange || payload.exchange,
+    currency: normalizeCurrencyOrDefault(params.sourceCurrency || payload.currency || params.currency, 'USD'),
     price,
     source: 'Twelve Data',
     provider: 'twelvedata',
     fetchedAt: new Date().toISOString()
-  };
+  }, {
+    open: payload.open,
+    high: payload.high,
+    low: payload.low,
+    previousClose: payload.previous_close,
+    change: payload.change,
+    changePercent: payload.percent_change,
+    volume: payload.volume,
+    latestTradingDay: payload.datetime,
+    exchangeTimezone: payload.exchange_timezone
+  });
 }
 
 async function getFmpPrice(params, apiKey) {
@@ -272,7 +329,7 @@ async function getFmpPrice(params, apiKey) {
   const quote = Array.isArray(payload) ? payload[0] : payload;
   const price = parsePositiveNumber(quote?.price);
   if (!Number.isFinite(price)) throw new Error('FMP did not return a valid price.');
-  return {
+  return withOptionalQuoteFields({
     symbol: params.symbol,
     providerSymbol: symbol,
     exchange: params.exchange,
@@ -281,7 +338,17 @@ async function getFmpPrice(params, apiKey) {
     source: 'Financial Modeling Prep',
     provider: 'fmp',
     fetchedAt: new Date().toISOString()
-  };
+  }, {
+    open: quote?.open,
+    high: quote?.dayHigh ?? quote?.high,
+    low: quote?.dayLow ?? quote?.low,
+    previousClose: quote?.previousClose,
+    change: quote?.change,
+    changePercent: quote?.changesPercentage,
+    volume: quote?.volume,
+    marketCap: quote?.marketCap,
+    latestTradingDay: quote?.timestamp ? isoFromTimestamp(quote.timestamp).slice(0, 10) : ''
+  });
 }
 
 async function getEodhdPrice(params, apiKey) {
@@ -292,7 +359,7 @@ async function getEodhdPrice(params, apiKey) {
   const payload = await fetchJson(url);
   const price = parsePositiveNumber(payload.close ?? payload.price ?? payload.last ?? payload.previousClose);
   if (!Number.isFinite(price)) throw new Error('EODHD did not return a valid price.');
-  return {
+  return withOptionalQuoteFields({
     symbol: params.symbol,
     providerSymbol: symbol,
     exchange: params.exchange,
@@ -301,7 +368,16 @@ async function getEodhdPrice(params, apiKey) {
     source: 'EODHD',
     provider: 'eodhd',
     fetchedAt: new Date().toISOString()
-  };
+  }, {
+    open: payload.open,
+    high: payload.high,
+    low: payload.low,
+    previousClose: payload.previousClose ?? payload.previous_close,
+    change: payload.change,
+    changePercent: payload.change_p ?? payload.changePercent,
+    volume: payload.volume,
+    latestTradingDay: payload.date ?? isoFromTimestamp(payload.timestamp).slice(0, 10)
+  });
 }
 
 async function getAlphaVantagePrice(params, apiKey) {
@@ -314,7 +390,7 @@ async function getAlphaVantagePrice(params, apiKey) {
   const quote = payload['Global Quote'] || payload;
   const price = parsePositiveNumber(quote['05. price'] || quote.price);
   if (!Number.isFinite(price)) throw new Error('Alpha Vantage did not return a valid price.');
-  return {
+  return withOptionalQuoteFields({
     symbol: params.symbol,
     providerSymbol: symbol,
     exchange: params.exchange,
@@ -323,7 +399,16 @@ async function getAlphaVantagePrice(params, apiKey) {
     source: 'Alpha Vantage',
     provider: 'alphavantage',
     fetchedAt: new Date().toISOString()
-  };
+  }, {
+    open: quote['02. open'] || quote.open,
+    high: quote['03. high'] || quote.high,
+    low: quote['04. low'] || quote.low,
+    previousClose: quote['08. previous close'] || quote.previousClose,
+    change: quote['09. change'] || quote.change,
+    changePercent: quote['10. change percent'] || quote.changePercent,
+    volume: quote['06. volume'] || quote.volume,
+    latestTradingDay: quote['07. latest trading day'] || quote.latestTradingDay
+  });
 }
 
 const priceAdapters = {
@@ -331,6 +416,179 @@ const priceAdapters = {
   fmp: getFmpPrice,
   eodhd: getEodhdPrice,
   alphavantage: getAlphaVantagePrice
+};
+
+const HISTORY_RANGES = {
+  '1M': { days: 45, outputSize: 45 },
+  '6M': { days: 210, outputSize: 180 },
+  '1Y': { days: 410, outputSize: 260 },
+  '5Y': { days: 1900, outputSize: 1300 }
+};
+
+function normalizeHistoryRange(range) {
+  const value = upper(range || '1Y');
+  return HISTORY_RANGES[value] ? value : '1Y';
+}
+
+function dateDaysAgo(days) {
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() - days);
+  return date.toISOString().slice(0, 10);
+}
+
+function normalizeHistoryPoint(item, dateKeys = ['date', 'datetime']) {
+  const date = dateKeys.map(key => clean(item?.[key])).find(Boolean);
+  const close = parsePositiveNumber(item?.adjusted_close ?? item?.adjustedClose ?? item?.adjClose ?? item?.close ?? item?.price);
+  if (!date || !Number.isFinite(close)) return null;
+  const point = { date: date.slice(0, 10), close };
+  [
+    ['open', item?.open],
+    ['high', item?.high],
+    ['low', item?.low],
+    ['volume', item?.volume]
+  ].forEach(([key, value]) => {
+    const parsed = definedNumber(value);
+    if (parsed !== undefined) point[key] = parsed;
+  });
+  return point;
+}
+
+function normalizeHistoryPoints(items = [], fromDate = '') {
+  const seen = new Set();
+  return items
+    .map(item => normalizeHistoryPoint(item))
+    .filter(Boolean)
+    .filter(point => !fromDate || point.date >= fromDate)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .filter(point => {
+      if (seen.has(point.date)) return false;
+      seen.add(point.date);
+      return true;
+    });
+}
+
+function normalizeAlphaHistoryPoints(payload, fromDate) {
+  const series = payload['Time Series (Daily)'] || payload['Time Series (5min)'] || {};
+  return normalizeHistoryPoints(Object.entries(series).map(([date, values]) => ({
+    date,
+    open: values['1. open'],
+    high: values['2. high'],
+    low: values['3. low'],
+    close: values['5. adjusted close'] || values['4. close'],
+    volume: values['6. volume'] || values['5. volume']
+  })), fromDate);
+}
+
+async function getTwelveDataHistory(params, apiKey) {
+  const range = normalizeHistoryRange(params.range);
+  const config = HISTORY_RANGES[range];
+  const symbol = getProviderSymbol(params, 'twelvedata');
+  const url = new URL('https://api.twelvedata.com/time_series');
+  url.searchParams.set('symbol', symbol);
+  url.searchParams.set('interval', '1day');
+  url.searchParams.set('outputsize', String(config.outputSize));
+  url.searchParams.set('dp', '6');
+  if (params.exchange) url.searchParams.set('exchange', params.exchange);
+  const payload = await fetchJson(url, { Authorization: `apikey ${apiKey}` });
+  const points = normalizeHistoryPoints(Array.isArray(payload?.values) ? payload.values : [], dateDaysAgo(config.days));
+  if (!points.length) throw new Error('Twelve Data did not return historical prices.');
+  return {
+    symbol: params.symbol,
+    providerSymbol: symbol,
+    exchange: params.exchange,
+    currency: normalizeCurrencyOrDefault(params.sourceCurrency || payload?.meta?.currency || params.currency, 'USD'),
+    range,
+    points,
+    source: 'Twelve Data',
+    provider: 'twelvedata',
+    fetchedAt: new Date().toISOString()
+  };
+}
+
+async function getFmpHistory(params, apiKey) {
+  const range = normalizeHistoryRange(params.range);
+  const config = HISTORY_RANGES[range];
+  const symbol = getProviderSymbol(params, 'fmp');
+  const fromDate = dateDaysAgo(config.days);
+  const url = new URL(`https://financialmodelingprep.com/api/v3/historical-price-full/${encodeURIComponent(symbol)}`);
+  url.searchParams.set('serietype', 'line');
+  url.searchParams.set('from', fromDate);
+  url.searchParams.set('apikey', apiKey);
+  const payload = await fetchJson(url);
+  const rows = Array.isArray(payload) ? payload : payload.historical || [];
+  const points = normalizeHistoryPoints(rows, fromDate);
+  if (!points.length) throw new Error('FMP did not return historical prices.');
+  return {
+    symbol: params.symbol,
+    providerSymbol: symbol,
+    exchange: params.exchange,
+    currency: normalizeCurrencyOrDefault(params.sourceCurrency || params.currency, 'USD'),
+    range,
+    points,
+    source: 'Financial Modeling Prep',
+    provider: 'fmp',
+    fetchedAt: new Date().toISOString()
+  };
+}
+
+async function getEodhdHistory(params, apiKey) {
+  const range = normalizeHistoryRange(params.range);
+  const config = HISTORY_RANGES[range];
+  const symbol = inferEodhdSymbol(params);
+  const fromDate = dateDaysAgo(config.days);
+  const url = new URL(`https://eodhd.com/api/eod/${encodeURIComponent(symbol)}`);
+  url.searchParams.set('api_token', apiKey);
+  url.searchParams.set('fmt', 'json');
+  url.searchParams.set('period', 'd');
+  url.searchParams.set('from', fromDate);
+  const payload = await fetchJson(url);
+  const points = normalizeHistoryPoints(Array.isArray(payload) ? payload : [], fromDate);
+  if (!points.length) throw new Error('EODHD did not return historical prices.');
+  return {
+    symbol: params.symbol,
+    providerSymbol: symbol,
+    exchange: params.exchange,
+    currency: normalizeCurrencyOrDefault(params.sourceCurrency || params.currency, 'USD'),
+    range,
+    points,
+    source: 'EODHD',
+    provider: 'eodhd',
+    fetchedAt: new Date().toISOString()
+  };
+}
+
+async function getAlphaVantageHistory(params, apiKey) {
+  const range = normalizeHistoryRange(params.range);
+  const config = HISTORY_RANGES[range];
+  const symbol = getProviderSymbol(params, 'alphavantage');
+  const fromDate = dateDaysAgo(config.days);
+  const url = new URL('https://www.alphavantage.co/query');
+  url.searchParams.set('function', 'TIME_SERIES_DAILY_ADJUSTED');
+  url.searchParams.set('symbol', symbol);
+  url.searchParams.set('outputsize', range === '1M' || range === '6M' ? 'compact' : 'full');
+  url.searchParams.set('apikey', apiKey);
+  const payload = await fetchJson(url);
+  const points = normalizeAlphaHistoryPoints(payload, fromDate);
+  if (!points.length) throw new Error('Alpha Vantage did not return historical prices.');
+  return {
+    symbol: params.symbol,
+    providerSymbol: symbol,
+    exchange: params.exchange,
+    currency: normalizeCurrencyOrDefault(params.sourceCurrency || params.currency, 'USD'),
+    range,
+    points,
+    source: 'Alpha Vantage',
+    provider: 'alphavantage',
+    fetchedAt: new Date().toISOString()
+  };
+}
+
+const historyAdapters = {
+  twelvedata: getTwelveDataHistory,
+  fmp: getFmpHistory,
+  eodhd: getEodhdHistory,
+  alphavantage: getAlphaVantageHistory
 };
 
 async function getTwelveDataFxRate(fromCurrency, toCurrency, apiKey) {
@@ -431,6 +689,24 @@ async function searchLiveProviders(query, limit, env = process.env) {
   };
 }
 
+function convertMoneyFields(result, rate) {
+  const converted = { ...result };
+  ['price', 'open', 'high', 'low', 'previousClose', 'change', 'marketCap'].forEach((key) => {
+    if (Number.isFinite(result[key])) converted[key] = result[key] * rate;
+  });
+  return converted;
+}
+
+function convertHistoryPoints(points = [], rate) {
+  return points.map(point => {
+    const converted = { ...point };
+    ['open', 'high', 'low', 'close'].forEach((key) => {
+      if (Number.isFinite(point[key])) converted[key] = point[key] * rate;
+    });
+    return converted;
+  });
+}
+
 async function getLatestPrice(params, env = process.env) {
   const configured = getConfiguredProviders(env);
   const errors = [];
@@ -444,14 +720,13 @@ async function getLatestPrice(params, env = process.env) {
         const fx = await getFxRate(result.currency, targetCurrency, env);
         return {
           result: {
-            ...result,
+            ...convertMoneyFields(result, fx.rate),
             originalPrice: result.price,
             originalCurrency: result.currency,
             fxRate: fx.rate,
             fxFromCurrency: fx.fromCurrency,
             fxToCurrency: fx.toCurrency,
             fxProvider: fx.provider,
-            price: result.price * fx.rate,
             currency: targetCurrency,
             converted: true
           },
@@ -469,11 +744,49 @@ async function getLatestPrice(params, env = process.env) {
   return { result: null, errors, providerCount: configured.length };
 }
 
+async function getHistoricalPrices(params, env = process.env) {
+  const configured = getConfiguredProviders(env);
+  const errors = [];
+  const targetCurrency = normalizeCurrencyOrDefault(params.currency, params.sourceCurrency || 'EUR');
+
+  for (const provider of configured) {
+    try {
+      const result = await historyAdapters[provider.id](params, clean(env[provider.envKey]));
+      console.info('market_data.history.success', { provider: provider.id, symbol: params.symbol, points: result.points.length });
+      if (result.currency !== targetCurrency) {
+        const fx = await getFxRate(result.currency, targetCurrency, env);
+        return {
+          result: {
+            ...result,
+            originalCurrency: result.currency,
+            fxRate: fx.rate,
+            fxFromCurrency: fx.fromCurrency,
+            fxToCurrency: fx.toCurrency,
+            fxProvider: fx.provider,
+            points: convertHistoryPoints(result.points, fx.rate),
+            currency: targetCurrency,
+            converted: true
+          },
+          errors,
+          providerCount: configured.length
+        };
+      }
+      return { result: { ...result, converted: false }, errors, providerCount: configured.length };
+    } catch (error) {
+      errors.push({ provider: provider.id, source: provider.name, error: error.message });
+      console.warn('market_data.history.failure', { provider: provider.id, symbol: params.symbol, error: error.message });
+    }
+  }
+
+  return { result: null, errors, providerCount: configured.length };
+}
+
 module.exports = {
   DEFAULT_PROVIDER_ORDER,
   PROVIDERS,
   getConfiguredProviders,
   getFxRate,
+  getHistoricalPrices,
   getLatestPrice,
   getProviderStatuses,
   mergeResults,

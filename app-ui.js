@@ -11,9 +11,17 @@ const ui = {
   priceTimestamp: document.getElementById('priceTimestamp'),
   priceSourceLabel: document.getElementById('priceSourceLabel'),
   priceTimeLabel: document.getElementById('priceTimeLabel'),
+  targetPriceTimestamp: document.getElementById('targetPriceTimestamp'),
+  targetPriceSourceLabel: document.getElementById('targetPriceSourceLabel'),
+  targetPriceTimeLabel: document.getElementById('targetPriceTimeLabel'),
+  switchTargetPrice: document.getElementById('switchTargetPrice'),
+  switchBuyCost: document.getElementById('switchBuyCost'),
+  switchHorizonYears: document.getElementById('switchHorizonYears'),
+  switchAllowFractional: document.getElementById('switchAllowFractional'),
   lotsDetails: document.getElementById('lotsDetails'),
   lotsContainer: document.getElementById('lotsContainer'),
   lotsCount: document.getElementById('lotsCount'),
+  saleOrderSelect: document.getElementById('saleOrderSelect'),
   addLotBtn: document.getElementById('addLotBtn'),
   clearLotsBtn: document.getElementById('clearLotsBtn'),
   lotsSummary: document.getElementById('lotsSummary'),
@@ -51,6 +59,14 @@ const ui = {
   foreignTaxPaid: document.getElementById('foreignTaxPaid'),
   foreignTaxCreditable: document.getElementById('foreignTaxCreditable'),
   priorTaxedVorabpauschale: document.getElementById('priorTaxedVorabpauschale'),
+  distributionPolicy: document.getElementById('distributionPolicy'),
+  fundDomicile: document.getElementById('fundDomicile'),
+  annualDistributionYield: document.getElementById('annualDistributionYield'),
+  withholdingTaxRate: document.getElementById('withholdingTaxRate'),
+  totalExpenseRatio: document.getElementById('totalExpenseRatio'),
+  trackingDifference: document.getElementById('trackingDifference'),
+  fundCurrencyExposure: document.getElementById('fundCurrencyExposure'),
+  indexMethodology: document.getElementById('indexMethodology'),
   portfolioValue: document.getElementById('portfolioValue'),
   targetWeight: document.getElementById('targetWeight'),
   concentrationAlert: document.getElementById('concentrationAlert'),
@@ -100,6 +116,35 @@ const ui = {
   alertThreshold: document.getElementById('alertThreshold'),
   addAlertBtn: document.getElementById('addAlertBtn'),
   alertList: document.getElementById('alertList'),
+  targetSellPrice: document.getElementById('targetSellPrice'),
+  targetReachProbability: document.getElementById('targetReachProbability'),
+  freshCashAmount: document.getElementById('freshCashAmount'),
+  cashReserve: document.getElementById('cashReserve'),
+  maxTolerableLoss: document.getElementById('maxTolerableLoss'),
+  timeHorizonYears: document.getElementById('timeHorizonYears'),
+  sectorExposure: document.getElementById('sectorExposure'),
+  countryExposure: document.getElementById('countryExposure'),
+  currentVolatility: document.getElementById('currentVolatility'),
+  newVolatility: document.getElementById('newVolatility'),
+  portfolioVolatility: document.getElementById('portfolioVolatility'),
+  correlationToPortfolio: document.getElementById('correlationToPortfolio'),
+  decisionSummary: document.getElementById('decisionSummary'),
+  decisionTabs: [...document.querySelectorAll('[data-decision-tab]')],
+  decisionPanels: [...document.querySelectorAll('[data-decision-panel]')],
+  scenarioCaseEditor: document.getElementById('scenarioCaseEditor'),
+  decisionScenarioResults: document.getElementById('decisionScenarioResults'),
+  monteCarloSummary: document.getElementById('monteCarloSummary'),
+  portfolioRiskMetrics: document.getElementById('portfolioRiskMetrics'),
+  riskFlagList: document.getElementById('riskFlagList'),
+  riskCatalogList: document.getElementById('riskCatalogList'),
+  researchThesis: document.getElementById('researchThesis'),
+  generateResearchMemoBtn: document.getElementById('generateResearchMemoBtn'),
+  researchMemoStatus: document.getElementById('researchMemoStatus'),
+  researchMemoOutput: document.getElementById('researchMemoOutput'),
+  assumptionQualityList: document.getElementById('assumptionQualityList'),
+  decisionWatchSuggestions: document.getElementById('decisionWatchSuggestions'),
+  printDecisionReportBtn: document.getElementById('printDecisionReportBtn'),
+  decisionReportOutput: document.getElementById('decisionReportOutput'),
   shareToast: document.getElementById('shareToast'),
   shareToastMsg: document.getElementById('shareToastMsg'),
   installAppBtn: document.getElementById('installAppBtn'),
@@ -132,21 +177,39 @@ let lastOptimizerResult = null;
 let fxFetchTimer = null;
 let fxAbort = null;
 let optimizerRerunTimer = null;
+let decisionScenarioCases = [];
+let lastDecisionResult = null;
+let researchMemos = [];
 
 /* ── Lots manager ──────────────────────────────────────────────────── */
 function addLot(sharesVal, priceVal) {
   const idx = lots.length;
-  lots.push({ shares: sharesVal || '', price: priceVal || '' });
+  const source = typeof sharesVal === 'object' && sharesVal !== null ? sharesVal : { shares: sharesVal, price: priceVal };
+  lots.push({
+    acquiredAt: source.acquiredAt || source.date || '',
+    shares: source.shares || '',
+    price: source.price || '',
+    fees: source.fees || '',
+    fxRateBuy: source.fxRateBuy || source.fxRate || '',
+    currency: source.currency || '',
+    selectedForSale: source.selectedForSale !== false
+  });
   const row = document.createElement('div');
   row.className = 'lot-row';
   row.dataset.lotIndex = idx;
-  row.innerHTML = `<label class="field"><span>Shares</span><input type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 5" data-lot-shares="${idx}"></label><label class="field"><span>Buy price</span><input type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 80" data-lot-price="${idx}"></label><button type="button" class="lot-remove" data-remove-lot="${idx}" aria-label="Remove lot"><span class="icon-x" aria-hidden="true"></span></button>`;
-  if (sharesVal) row.querySelector(`[data-lot-shares="${idx}"]`).value = sharesVal;
-  if (priceVal) row.querySelector(`[data-lot-price="${idx}"]`).value = priceVal;
+  row.innerHTML = `<label class="lot-select"><input type="checkbox" data-lot-selected="${idx}" checked><span>Sell</span></label><label class="field field--compact"><span>Date</span><input type="text" autocomplete="off" placeholder="YYYY-MM-DD" data-lot-date="${idx}"></label><label class="field field--compact"><span>Shares</span><input type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 5" data-lot-shares="${idx}"></label><label class="field field--compact"><span>Unit cost</span><input type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 80" data-lot-price="${idx}"></label><label class="field field--compact"><span>Fees</span><input type="text" inputmode="decimal" autocomplete="off" placeholder="0" data-lot-fees="${idx}"></label><label class="field field--compact"><span>Buy FX</span><input type="text" inputmode="decimal" autocomplete="off" placeholder="1" data-lot-fx="${idx}"></label><label class="field field--compact"><span>Currency</span><input type="text" inputmode="latin" maxlength="3" autocomplete="off" placeholder="EUR" data-lot-currency="${idx}"></label><button type="button" class="lot-remove" data-remove-lot="${idx}" aria-label="Remove lot"><span class="icon-x" aria-hidden="true"></span></button>`;
+  row.querySelector(`[data-lot-selected="${idx}"]`).checked = lots[idx].selectedForSale !== false;
+  row.querySelector(`[data-lot-date="${idx}"]`).value = lots[idx].acquiredAt;
+  row.querySelector(`[data-lot-shares="${idx}"]`).value = lots[idx].shares;
+  row.querySelector(`[data-lot-price="${idx}"]`).value = lots[idx].price;
+  row.querySelector(`[data-lot-fees="${idx}"]`).value = lots[idx].fees;
+  row.querySelector(`[data-lot-fx="${idx}"]`).value = lots[idx].fxRateBuy;
+  row.querySelector(`[data-lot-currency="${idx}"]`).value = lots[idx].currency;
   ui.lotsContainer.appendChild(row);
   row.querySelectorAll('input').forEach(inp => {
     inp.addEventListener('input', () => { readLots(); if (typeof calculate === 'function') calculate(); });
-    inp.addEventListener('focus', () => inp.select());
+    inp.addEventListener('change', () => { readLots(); if (typeof calculate === 'function') calculate(); });
+    inp.addEventListener('focus', () => { if (inp.type !== 'checkbox' && typeof inp.select === 'function') inp.select(); });
   });
   row.querySelector(`[data-remove-lot="${idx}"]`).addEventListener('click', () => removeLot(idx));
   readLots();
@@ -163,7 +226,7 @@ function rebuildLotRows() {
   ui.lotsContainer.innerHTML = '';
   const copy = lots.slice();
   lots = [];
-  copy.forEach(l => addLot(l.shares, l.price));
+  copy.forEach(l => addLot(l));
 }
 
 function readLots() {
@@ -171,7 +234,20 @@ function readLots() {
   ui.lotsContainer.querySelectorAll('.lot-row').forEach(row => {
     const sInp = row.querySelector('[data-lot-shares]');
     const pInp = row.querySelector('[data-lot-price]');
-    lots.push({ shares: sInp?.value || '', price: pInp?.value || '' });
+    const dateInp = row.querySelector('[data-lot-date]');
+    const feeInp = row.querySelector('[data-lot-fees]');
+    const fxInp = row.querySelector('[data-lot-fx]');
+    const ccyInp = row.querySelector('[data-lot-currency]');
+    const selectedInp = row.querySelector('[data-lot-selected]');
+    lots.push({
+      acquiredAt: dateInp?.value || '',
+      shares: sInp?.value || '',
+      price: pInp?.value || '',
+      fees: feeInp?.value || '',
+      fxRateBuy: fxInp?.value || '',
+      currency: normalizeCurrencyCode(ccyInp?.value || document.getElementById('currencyCode')?.value || 'EUR'),
+      selectedForSale: selectedInp?.checked !== false
+    });
   });
   renderLotsSummary();
 }
@@ -314,7 +390,7 @@ function updateTaxDrag(input, output) {
   ui.taxDragMarket.style.flex = cashPct;
   ui.taxDragTax.style.flex = taxPct || 0.001;
   ui.taxDragCosts.style.flex = costPct || 0.001;
-  const cc = input.currencyCode || 'EUR';
+  const cc = output.valueCurrency || input.currencyCode || 'EUR';
   ui.taxDragMarketLabel.textContent = `${cashPct.toFixed(1)}%`;
   ui.taxDragTaxLabel.textContent = taxPct > 0.5 ? `${taxPct.toFixed(1)}%` : '';
   ui.taxDragCostsLabel.textContent = costPct > 0.5 ? `${costPct.toFixed(1)}%` : '';
@@ -376,6 +452,26 @@ function buildWorkspaceSnapshot() {
         lots: importedLots
       }],
       scenarios: portfolioScenarios.length ? portfolioScenarios : [{ id: 'active-scenario', name: 'Current inputs', settings: input, optimizerResult: lastOptimizerResult, updatedAt: new Date().toISOString() }],
+      decisionCases: decisionScenarioCases,
+      riskProfile: {
+        cashReserve: input.cashReserve,
+        maxTolerableLoss: input.maxTolerableLoss,
+        timeHorizonYears: input.timeHorizonYears,
+        sectorExposure: input.sectorExposure,
+        countryExposure: input.countryExposure,
+        currentVolatility: input.currentVolatility,
+        newVolatility: input.newVolatility,
+        portfolioVolatility: input.portfolioVolatility,
+        correlationToPortfolio: input.correlationToPortfolio
+      },
+      researchMemos,
+      watchRules: localAlertRules,
+      portfolioExposure: {
+        portfolioValue: input.portfolioValue,
+        targetWeight: input.targetWeight,
+        currencyExposure: input.positionCurrency
+      },
+      assumptions: lastDecisionResult?.assumptionQuality || {},
       imports: importedTransactions.length ? [{ id: pendingImportPreview?.importId || 'local-import', transactions: importedTransactions }] : []
     })
     : { name: ui.workspaceName?.value || 'Local workspace', input, positions: portfolioPositions, scenarios: portfolioScenarios, imports: importedTransactions, lots: importedLots };
@@ -401,11 +497,22 @@ function applyWorkspaceSnapshot(workspace) {
     rebuyPrice: scenario.rebuyPrice,
     expectedOldReturn: Number.isFinite(scenario.expectedOldReturn) ? scenario.expectedOldReturn * 100 : undefined,
     expectedNewReturn: Number.isFinite(scenario.expectedNewReturn) ? scenario.expectedNewReturn * 100 : undefined,
+    switchTargetPrice: scenario.switchTargetPrice,
+    switchBuyCost: scenario.switchBuyCost,
+    switchHorizonYears: scenario.switchHorizonYears,
     currencyCode: scenario.currencyCode,
     positionCurrency: scenario.positionCurrency,
     taxCurrency: scenario.taxCurrency,
     fxRateBuy: scenario.fxRateBuy,
-    fxRateNow: scenario.fxRateNow
+    fxRateNow: scenario.fxRateNow,
+    targetSellPrice: scenario.targetSellPrice,
+    targetReachProbability: Number.isFinite(scenario.targetReachProbability) ? scenario.targetReachProbability * 100 : undefined,
+    freshCashAmount: scenario.freshCashAmount,
+    cashReserve: scenario.cashReserve,
+    maxTolerableLoss: Number.isFinite(scenario.maxTolerableLoss) ? scenario.maxTolerableLoss * 100 : undefined,
+    timeHorizonYears: scenario.timeHorizonYears,
+    sectorExposure: scenario.sectorExposure,
+    countryExposure: scenario.countryExposure
   }).forEach(([id, value]) => {
     const el = document.getElementById(id);
     if (el && value !== undefined && value !== null && value !== '') el.value = Number.isFinite(Number(value)) ? formatInputNumber(Number(value)) : String(value);
@@ -415,6 +522,9 @@ function applyWorkspaceSnapshot(workspace) {
   activeScenarioId = workspace?.activeScenarioId || workspace?.scenarios?.[0]?.id || null;
   portfolioPositions = Array.isArray(workspace?.positions) ? workspace.positions : [];
   portfolioScenarios = Array.isArray(workspace?.scenarios) ? workspace.scenarios : [];
+  decisionScenarioCases = Array.isArray(workspace?.decisionCases) && workspace.decisionCases.length ? workspace.decisionCases : decisionScenarioCases;
+  researchMemos = Array.isArray(workspace?.researchMemos) ? workspace.researchMemos : [];
+  localAlertRules = Array.isArray(workspace?.watchRules) ? workspace.watchRules : localAlertRules;
   lastOptimizerResult = portfolioScenarios.find(item => item.id === activeScenarioId)?.optimizerResult || null;
   importedTransactions = workspace?.imports?.[0]?.transactions || workspace?.imports || [];
   importedLots = workspace?.positions?.[0]?.lots || workspace?.lots || [];
@@ -648,11 +758,29 @@ function clearBrokerImport() {
 }
 
 function getActiveLotSaleResult(input) {
-  if (!importedLots.length || !window.AppLedger?.calculateFifoSale || !hasCoreInputs(input)) return null;
-  return window.AppLedger.calculateFifoSale(importedLots, {
+  if (!window.AppLedger?.calculateFifoSale || !hasCoreInputs(input)) return null;
+  const manualLots = (lots || []).map((lot, index) => ({
+    id: `manual-${index + 1}`,
+    acquiredAt: lot.acquiredAt || '',
+    shares: parseLocaleNumber(lot.shares),
+    price: parseLocaleNumber(lot.price),
+    fees: parseLocaleNumber(lot.fees) || 0,
+    currency: lot.currency || input.positionCurrency || input.currencyCode,
+    fxRateBuy: parseLocaleNumber(lot.fxRateBuy) || (input.fxMode === 'manual' ? input.fxRateBuy : 1),
+    selectedForSale: lot.selectedForSale !== false
+  })).filter(lot => Number.isFinite(lot.shares) && lot.shares > 0 && Number.isFinite(lot.price));
+  const activeLots = importedLots.length ? importedLots : manualLots;
+  if (!activeLots.length) return null;
+  const selectedLotIds = ui.saleOrderSelect?.value === 'manual' && !importedLots.length
+    ? manualLots.filter(lot => lot.selectedForSale).map(lot => lot.id)
+    : undefined;
+  return window.AppLedger.calculateFifoSale(activeLots, {
     shares: input.shares * (input.sellFraction || 1),
     price: input.currentPrice,
-    fees: input.transactionCost * (input.sellFraction || 1)
+    fees: input.transactionCost * (input.sellFraction || 1),
+    fxRateNow: input.fxMode === 'manual' ? input.fxRateNow : undefined,
+    saleOrder: ui.saleOrderSelect?.value || 'fifo',
+    selectedLotIds
   }, { taxRate: input.taxRate, taxProfile: input.taxProfile });
 }
 
@@ -938,7 +1066,7 @@ function updatePartialSell(input, output) {
   if (Number.isFinite(output.remainingShares) && output.remainingShares > 0) {
     ui.remainingPosition.hidden = false;
     ui.remainingShares.textContent = formatShares(output.remainingShares);
-    ui.remainingValue.textContent = formatCurrency(output.remainingValue, input.currencyCode);
+    ui.remainingValue.textContent = formatCurrency(output.remainingValue, output.valueCurrency || input.currencyCode);
   } else {
     ui.remainingPosition.hidden = true;
   }
@@ -998,7 +1126,15 @@ function getDetailedTaxProfile() {
     otherLossPot: num(ui.otherLossPot, 0),
     foreignTaxPaid: num(ui.foreignTaxPaid, 0),
     foreignTaxCreditable: num(ui.foreignTaxCreditable, 0),
-    priorTaxedVorabpauschale: num(ui.priorTaxedVorabpauschale, 0)
+    priorTaxedVorabpauschale: num(ui.priorTaxedVorabpauschale, 0),
+    distributionPolicy: ui.distributionPolicy?.value || 'unknown',
+    fundDomicile: ui.fundDomicile?.value || '',
+    annualDistributionYield: num(ui.annualDistributionYield, 0) / 100,
+    withholdingTaxRate: num(ui.withholdingTaxRate, 0) / 100,
+    totalExpenseRatio: num(ui.totalExpenseRatio, 0) / 100,
+    trackingDifference: num(ui.trackingDifference, 0) / 100,
+    currencyExposure: ui.fundCurrencyExposure?.value || '',
+    indexMethodology: ui.indexMethodology?.value || ''
   };
 }
 
@@ -1069,14 +1205,216 @@ function updateLocalAlerts(input, output) {
   });
 }
 
+/* ── Decision Lab ─────────────────────────────────────────────────── */
+function localEscapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function ensureDecisionScenarioCases(input = {}) {
+  if (!decisionScenarioCases.length && window.TaxDecision?.defaultScenarioCases) {
+    decisionScenarioCases = window.TaxDecision.defaultScenarioCases(input);
+  }
+  return decisionScenarioCases;
+}
+
+function updateDecisionScenarioCase(index, key, value) {
+  const current = ensureDecisionScenarioCases();
+  const parsed = key === 'name' ? value : parseLocaleNumber(value);
+  decisionScenarioCases = current.map((item, i) => {
+    if (i !== index) return item;
+    if (key === 'probability') return { ...item, probability: Number.isFinite(parsed) ? Math.max(parsed / 100, 0) : 0 };
+    if (key === 'targetReachProbability') return { ...item, targetReachProbability: Number.isFinite(parsed) ? Math.min(Math.max(parsed / 100, 0), 1) : 0 };
+    if (['oldReturn', 'newReturn', 'oldDividendYield', 'newDividendYield', 'fxReturn'].includes(key)) return { ...item, [key]: Number.isFinite(parsed) ? parsed / 100 : 0 };
+    return { ...item, [key]: parsed };
+  });
+  if (typeof calculate === 'function') calculate();
+}
+
+function renderScenarioCaseEditor(input = {}) {
+  if (!ui.scenarioCaseEditor) return;
+  const cases = ensureDecisionScenarioCases(input);
+  ui.scenarioCaseEditor.innerHTML = `
+    <div class="scenario-case-row scenario-case-row--head"><span>Case</span><span>Prob.</span><span>Old</span><span>New</span><span>Old div</span><span>New div</span><span>FX</span><span>Target</span></div>
+    ${cases.map((item, index) => `
+      <div class="scenario-case-row" data-scenario-case="${index}">
+        <input type="text" value="${localEscapeHtml(item.name)}" data-scenario-field="name" aria-label="Scenario name">
+        <input type="text" inputmode="decimal" value="${formatInputNumber((item.probability || 0) * 100)}" data-scenario-field="probability" aria-label="Scenario probability">
+        <input type="text" inputmode="decimal" value="${formatInputNumber((item.oldReturn || 0) * 100)}" data-scenario-field="oldReturn" aria-label="Old stock return">
+        <input type="text" inputmode="decimal" value="${formatInputNumber((item.newReturn || 0) * 100)}" data-scenario-field="newReturn" aria-label="New stock return">
+        <input type="text" inputmode="decimal" value="${formatInputNumber((item.oldDividendYield || 0) * 100)}" data-scenario-field="oldDividendYield" aria-label="Old dividend yield">
+        <input type="text" inputmode="decimal" value="${formatInputNumber((item.newDividendYield || 0) * 100)}" data-scenario-field="newDividendYield" aria-label="New dividend yield">
+        <input type="text" inputmode="decimal" value="${formatInputNumber((item.fxReturn || 0) * 100)}" data-scenario-field="fxReturn" aria-label="FX return">
+        <input type="text" inputmode="decimal" value="${formatInputNumber((item.targetReachProbability ?? 1) * 100)}" data-scenario-field="targetReachProbability" aria-label="Target reach probability">
+      </div>
+    `).join('')}
+  `;
+}
+
+function activateDecisionTab(name) {
+  ui.decisionTabs.forEach((tab) => {
+    const selected = tab.dataset.decisionTab === name;
+    tab.classList.toggle('is-active', selected);
+    tab.setAttribute('aria-selected', String(selected));
+  });
+  ui.decisionPanels.forEach((panel) => {
+    panel.hidden = panel.dataset.decisionPanel !== name;
+  });
+}
+
+function updateDecisionLab(input, output, switchOutput) {
+  if (!window.TaxDecision || !ui.decisionSummary) return;
+  if (!hasCoreInputs(input)) {
+    ui.decisionSummary.textContent = 'Enter the current position to evaluate decision scenarios.';
+    if (ui.decisionScenarioResults) ui.decisionScenarioResults.innerHTML = '';
+    if (ui.monteCarloSummary) ui.monteCarloSummary.innerHTML = '';
+    return;
+  }
+  ensureDecisionScenarioCases(input);
+  renderScenarioCaseEditor(input);
+  lastDecisionResult = window.TaxDecision.calculateDecision(input, output, switchOutput, {
+    scenarioCases: decisionScenarioCases,
+    hasLots: importedLots.length > 0 || lots.length > 0,
+    marketData: pendingPrice || {},
+    customScenarioCases: decisionScenarioCases.length > 0
+  });
+  renderDecisionSummary(lastDecisionResult, input, output);
+  renderDecisionTradeScenarios(lastDecisionResult, input);
+  renderDecisionRisk(lastDecisionResult);
+  renderAssumptionQuality(lastDecisionResult);
+  renderWatchSuggestions(lastDecisionResult, input, output);
+  renderDecisionReport(lastDecisionResult, input);
+}
+
+function renderDecisionSummary(decision, input, output) {
+  const cc = decision.valueCurrency || output.valueCurrency || input.currencyCode;
+  const margin = decision.scenarioAnalysis.expectedMargin;
+  const winner = margin >= 0 ? 'switch scenario leads' : 'hold scenario leads';
+  ui.decisionSummary.innerHTML = `
+    <div class="decision-summary__item"><span>Expected scenario margin</span><strong class="${margin >= 0 ? 'is-positive' : 'is-negative'}">${localEscapeHtml(signedMoney(margin, cc))}</strong><small>Under your assumptions, ${winner}; this is not a recommendation.</small></div>
+    <div class="decision-summary__item"><span>Winner count</span><strong>${decision.scenarioAnalysis.winnerCounts.switch || 0} switch / ${decision.scenarioAnalysis.winnerCounts.hold || 0} hold / ${decision.scenarioAnalysis.winnerCounts.cash || 0} cash</strong><small>Across probability-weighted cases</small></div>
+    <div class="decision-summary__item"><span>Main uncertainty</span><strong>${localEscapeHtml(decision.assumptionQuality.find(item => item.confidence === 'low')?.assumption || 'Scenario returns')}</strong><small>Precise tax math still depends on weak forecasts.</small></div>
+  `;
+}
+
+function renderDecisionTradeScenarios(decision, input) {
+  if (!ui.decisionScenarioResults) return;
+  const cc = decision.valueCurrency || input.currencyCode;
+  ui.decisionScenarioResults.innerHTML = decision.tradeScenarios.map(item => `
+    <article class="decision-card">
+      <div class="decision-card__header"><span>${localEscapeHtml(item.label)}</span><strong>${localEscapeHtml(Number.isFinite(item.expectedValue) ? formatCurrency(item.expectedValue, cc) : 'Needs input')}</strong></div>
+      <div class="decision-card__grid">
+        <div><span>Tax now</span><strong>${localEscapeHtml(formatCurrency(item.taxNow, cc))}</strong></div>
+        <div><span>Investable</span><strong>${localEscapeHtml(formatCurrency(item.investableCash, cc))}</strong></div>
+        <div><span>Required return</span><strong>${localEscapeHtml(formatPercent(item.requiredNewReturn))}</strong></div>
+        <div><span>Margin</span><strong>${localEscapeHtml(formatPercent(item.marginVsHurdle))}</strong></div>
+      </div>
+      <div class="decision-card__notes">${(item.notes || ['Scenario output under your assumptions.']).map(note => `<p>${localEscapeHtml(note)}</p>`).join('')}</div>
+    </article>
+  `).join('');
+  if (ui.monteCarloSummary) {
+    const mc = decision.scenarioAnalysis.monteCarlo || {};
+    ui.monteCarloSummary.innerHTML = `<span>Monte Carlo (${mc.runs || 0} seeded runs)</span><strong>${localEscapeHtml(formatPercent(mc.switchWinRate))} switch win rate</strong><small>P10 / P50 / P90 margin: ${localEscapeHtml(formatCurrency(mc.p10Margin, cc))} / ${localEscapeHtml(formatCurrency(mc.p50Margin, cc))} / ${localEscapeHtml(formatCurrency(mc.p90Margin, cc))}</small>`;
+  }
+}
+
+function renderDecisionRisk(decision) {
+  if (ui.portfolioRiskMetrics && decision.portfolioRisk) {
+    const risk = decision.portfolioRisk;
+    ui.portfolioRiskMetrics.innerHTML = `
+      <div><span>Current weight</span><strong>${localEscapeHtml(formatPercent(risk.currentWeight))}</strong></div>
+      <div><span>After switch</span><strong>${localEscapeHtml(formatPercent(risk.switchWeight))}</strong></div>
+      <div><span>Risk-adjusted margin</span><strong>${localEscapeHtml(formatPercent(risk.riskAdjustedMargin))}</strong></div>
+      <div><span>Volatility change</span><strong>${localEscapeHtml(formatPercent(risk.portfolioVolatilityChange))}</strong></div>
+      <div><span>Drawdown vs tolerance</span><strong>${localEscapeHtml(formatPercent(risk.drawdownVsTolerance))}</strong></div>
+      <div><span>Correlation used</span><strong>${localEscapeHtml(formatPercent(risk.correlationToPortfolio))}</strong></div>
+    `;
+  }
+  if (ui.riskFlagList) {
+    ui.riskFlagList.innerHTML = decision.riskFlags.length
+      ? decision.riskFlags.map(flag => `<div class="risk-flag risk-flag--${localEscapeHtml(flag.severity)}"><span>${localEscapeHtml(flag.category)} · ${localEscapeHtml(flag.severity)}</span><strong>${localEscapeHtml(flag.label)}</strong><small>${localEscapeHtml(flag.message)}</small></div>`).join('')
+      : 'No high-signal risk flags from the current inputs.';
+  }
+  if (ui.riskCatalogList && decision.riskCatalog) {
+    ui.riskCatalogList.innerHTML = Object.entries(decision.riskCatalog).map(([category, items]) => `<details><summary>${localEscapeHtml(category)}</summary><p>${localEscapeHtml(items.join(', '))}</p></details>`).join('');
+  }
+}
+
+function renderAssumptionQuality(decision) {
+  if (!ui.assumptionQualityList) return;
+  ui.assumptionQualityList.innerHTML = decision.assumptionQuality.map(item => `<div class="assumption-row assumption-row--${localEscapeHtml(item.confidence)}"><span>${localEscapeHtml(item.assumption)}</span><strong>${localEscapeHtml(item.confidence)}</strong><small>${localEscapeHtml(item.reason)}</small></div>`).join('');
+}
+
+function renderWatchSuggestions(decision, input, output) {
+  if (!ui.decisionWatchSuggestions) return;
+  const cc = decision.valueCurrency || input.currencyCode;
+  const sw = decision.tradeScenarios.find(item => item.id === 'sell-switch') || {};
+  const suggestions = [
+    Number.isFinite(input.targetSellPrice) ? `Price reaches ${formatCurrency(input.targetSellPrice, output.positionCurrency || input.currencyCode)}` : '',
+    Number.isFinite(output.breakEvenPrice) ? `Rebuy price falls below ${formatCurrency(output.breakEvenPrice, output.positionCurrency || input.currencyCode)}` : '',
+    Number.isFinite(sw.requiredNewReturn) ? `Switch hurdle drops below ${formatPercent(sw.requiredNewReturn)}` : '',
+    Number.isFinite(output.taxDue) ? `Tax drag exceeds ${formatCurrency(output.taxDue, cc)}` : '',
+    Number.isFinite(input.portfolioValue) && input.portfolioValue > 0 ? 'Position weight exceeds target threshold' : ''
+  ].filter(Boolean);
+  ui.decisionWatchSuggestions.innerHTML = suggestions.map(item => `<div class="watch-suggestion">${localEscapeHtml(item)}</div>`).join('') || 'Add more assumptions to generate watch conditions.';
+}
+
+function renderDecisionReport(decision, input) {
+  if (!ui.decisionReportOutput || !window.TaxDecision?.serializeDecisionReport) return;
+  ui.decisionReportOutput.textContent = JSON.stringify(window.TaxDecision.serializeDecisionReport(decision, input), null, 2);
+}
+
+function renderResearchMemo(memo) {
+  if (!ui.researchMemoOutput) return;
+  if (!memo) {
+    ui.researchMemoStatus.textContent = 'No memo yet.';
+    ui.researchMemoOutput.innerHTML = '';
+    return;
+  }
+  ui.researchMemoStatus.textContent = `${memo.status || 'memo'} · ${memo.generatedAt || ''}`;
+  const sections = Object.values(memo.sections || {}).map(section => `<article class="research-section"><strong>${localEscapeHtml(section.title)}</strong>${(section.bullets || []).map(bullet => `<p>${localEscapeHtml(bullet)}</p>`).join('')}</article>`).join('');
+  const evidenceRows = (memo.evidence || []).map(item => `<div class="evidence-row"><strong>${localEscapeHtml(item.claim)}</strong><span>${localEscapeHtml(item.evidence)}</span><small>${localEscapeHtml(item.sourceName)}${item.sourceDate ? ` · ${localEscapeHtml(item.sourceDate)}` : ''} · ${localEscapeHtml(item.confidence)} · ${localEscapeHtml(item.thesisImpact)}</small></div>`).join('');
+  ui.researchMemoOutput.innerHTML = `${sections}<div class="evidence-list">${evidenceRows}</div>`;
+}
+
+async function generateResearchMemo() {
+  if (!window.TaxResearch?.generateResearchMemo) return;
+  const input = typeof getInputs === 'function' ? getInputs() : {};
+  if (ui.researchMemoStatus) ui.researchMemoStatus.textContent = 'Generating memo...';
+  const memo = await window.TaxResearch.generateResearchMemo({
+    symbol: selectedInstrument?.symbol || '',
+    targetSymbol: selectedTargetInstrument?.symbol || '',
+    thesis: ui.researchThesis?.value || '',
+    positionCurrency: input.positionCurrency,
+    taxCurrency: input.taxCurrency,
+    currency: input.currencyCode
+  });
+  researchMemos = [memo, ...researchMemos].slice(0, 8);
+  renderResearchMemo(memo);
+  saveWorkspaceLocal(true);
+}
+
+function printDecisionReport() {
+  window.print();
+}
+
 function buildCurrentAuditReport() {
   const input = typeof getInputs === 'function' ? getInputs() : {};
   const output = hasCoreInputs(input) ? calculateValues(input) : {};
   if (window.TaxWorkspace?.buildAuditReport) {
     return window.TaxWorkspace.buildAuditReport(input, output, {
       marketData: pendingPrice || {},
+      switchMarketData: typeof pendingTargetPrice !== 'undefined' ? (pendingTargetPrice || {}) : {},
+      marketHistory: typeof assetHistoryData !== 'undefined' ? assetHistoryData : {},
       positions: portfolioPositions,
       optimizerResult: lastOptimizerResult,
+      decisionResult: lastDecisionResult,
+      researchMemos,
+      assumptions: lastDecisionResult?.assumptionQuality || [],
       formulas: ['Realized gain = sale proceeds - cost basis - allocated costs', 'Tax due uses selected flat or German detailed profile']
     });
   }
@@ -1192,17 +1530,22 @@ const LS_KEY = 'taxswitch_inputs';
 function saveToLocalStorage() {
   try {
     const data = {};
-    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','workspaceName'].forEach(id => {
+    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis'].forEach(id => {
       const el = document.getElementById(id);
       if (el && el.value) data[id] = el.value;
     });
     data.includeTaxOnNew = document.getElementById('includeTaxOnNew')?.checked;
+    data.switchAllowFractional = document.getElementById('switchAllowFractional')?.checked;
     data.sellPct = sellPct;
     data.fxMode = fxMode;
     data.hurdleMode = getHurdleMode();
     data.lots = lots;
+    data.decisionScenarioCases = decisionScenarioCases;
+    data.researchMemos = researchMemos;
     if (typeof selectedInstrument !== 'undefined' && selectedInstrument) data.selectedInstrument = selectedInstrument;
+    if (typeof selectedTargetInstrument !== 'undefined' && selectedTargetInstrument) data.selectedTargetInstrument = selectedTargetInstrument;
     if (typeof pendingPrice !== 'undefined' && pendingPrice) data.pendingPrice = pendingPrice;
+    if (typeof pendingTargetPrice !== 'undefined' && pendingTargetPrice) data.pendingTargetPrice = pendingTargetPrice;
     localStorage.setItem(LS_KEY, JSON.stringify(data));
   } catch(e) { /* quota exceeded or private browsing */ }
 }
@@ -1212,11 +1555,12 @@ function restoreFromLocalStorage() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return false;
     const data = JSON.parse(raw);
-    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','workspaceName'].forEach(id => {
+    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis'].forEach(id => {
       const el = document.getElementById(id);
       if (el && data[id]) el.value = data[id];
     });
     if (data.includeTaxOnNew !== undefined) document.getElementById('includeTaxOnNew').checked = data.includeTaxOnNew;
+    if (data.switchAllowFractional !== undefined && document.getElementById('switchAllowFractional')) document.getElementById('switchAllowFractional').checked = data.switchAllowFractional;
     if (data.sellPct) activateSellChip(data.sellPct);
     if (data.fxMode) activateFxMode(data.fxMode);
     if (data.hurdleMode) {
@@ -1227,11 +1571,23 @@ function restoreFromLocalStorage() {
       }
     }
     if (Array.isArray(data.lots) && data.lots.length > 0) {
-      data.lots.forEach(l => addLot(l.shares, l.price));
+      data.lots.forEach(l => addLot(l));
+    }
+    if (Array.isArray(data.decisionScenarioCases)) decisionScenarioCases = data.decisionScenarioCases;
+    if (Array.isArray(data.researchMemos)) {
+      researchMemos = data.researchMemos;
+      renderResearchMemo(researchMemos[0]);
     }
     if (data.selectedInstrument && typeof selectInstrument === 'function') {
       selectInstrument(data.selectedInstrument, { skipAutoPrice: true });
     }
+    if (data.selectedTargetInstrument && typeof selectTargetInstrument === 'function') {
+      selectTargetInstrument(data.selectedTargetInstrument, { skipAutoPrice: true });
+    }
+    if (data.pendingPrice && typeof pendingPrice !== 'undefined') pendingPrice = data.pendingPrice;
+    if (data.pendingPrice && typeof latestQuoteData !== 'undefined') latestQuoteData = data.pendingPrice;
+    if (data.pendingTargetPrice && typeof pendingTargetPrice !== 'undefined') pendingTargetPrice = data.pendingTargetPrice;
+    if (data.pendingTargetPrice && typeof latestTargetQuoteData !== 'undefined') latestTargetQuoteData = data.pendingTargetPrice;
     restoreLocalAlerts();
     return true;
   } catch(e) { return false; }
@@ -1358,7 +1714,7 @@ function enhanceCustomSelect(select) {
 
 function enhanceClearableInput(input) {
   const field = input?.closest('.field');
-  if (!field || input.__taxswitchInput || input.id === 'instrumentSearch' || input.id === 'currencyCode') return;
+  if (!field || input.__taxswitchInput || input.id === 'instrumentSearch' || input.id === 'targetInstrumentSearch' || input.id === 'currencyCode') return;
   const type = (input.getAttribute('type') || 'text').toLowerCase();
   const hasDecimalKeyboard = input.getAttribute('inputmode') === 'decimal';
   if (!['text', 'search', 'password'].includes(type) || hasDecimalKeyboard) return;
@@ -1424,8 +1780,9 @@ function wireNewUI() {
   // Lots
   if (ui.addLotBtn) ui.addLotBtn.addEventListener('click', () => addLot('', ''));
   if (ui.clearLotsBtn) ui.clearLotsBtn.addEventListener('click', clearLots);
+  if (ui.saleOrderSelect) ui.saleOrderSelect.addEventListener('change', () => { if (typeof calculate === 'function') calculate(); });
   // Portfolio
-  [ui.portfolioValue, ui.targetWeight].forEach(inp => {
+  [ui.portfolioValue, ui.targetWeight, ui.currentVolatility, ui.newVolatility, ui.portfolioVolatility, ui.correlationToPortfolio].forEach(inp => {
     if (inp) {
       inp.addEventListener('input', () => { if (typeof calculate === 'function') calculate(); });
       inp.addEventListener('focus', () => inp.select());
@@ -1433,7 +1790,7 @@ function wireNewUI() {
   });
   // Hurdle radios
   ui.hurdleRadios.forEach(r => r.addEventListener('change', () => { hurdleMode = getHurdleMode(); if (typeof calculate === 'function') calculate(); }));
-  [ui.taxProfileMode, ui.filingStatus, ui.saverAllowanceRemaining, ui.churchTaxRate, ui.instrumentTaxClass, ui.stockLossPot, ui.otherLossPot, ui.foreignTaxPaid, ui.foreignTaxCreditable, ui.priorTaxedVorabpauschale].forEach(inp => {
+  [ui.taxProfileMode, ui.filingStatus, ui.saverAllowanceRemaining, ui.churchTaxRate, ui.instrumentTaxClass, ui.stockLossPot, ui.otherLossPot, ui.foreignTaxPaid, ui.foreignTaxCreditable, ui.priorTaxedVorabpauschale, ui.distributionPolicy, ui.fundDomicile, ui.annualDistributionYield, ui.withholdingTaxRate, ui.totalExpenseRatio, ui.trackingDifference, ui.fundCurrencyExposure, ui.indexMethodology].forEach(inp => {
     if (inp) {
       inp.addEventListener('input', () => { if (typeof calculate === 'function') calculate(); });
       inp.addEventListener('change', () => { if (typeof calculate === 'function') calculate(); });
@@ -1445,6 +1802,23 @@ function wireNewUI() {
   if (ui.exportJsonBtn) ui.exportJsonBtn.addEventListener('click', exportAuditJson);
   if (ui.exportHtmlBtn) ui.exportHtmlBtn.addEventListener('click', exportAuditHtml);
   if (ui.addAlertBtn) ui.addAlertBtn.addEventListener('click', addLocalAlert);
+  [ui.targetSellPrice, ui.targetReachProbability, ui.freshCashAmount, ui.cashReserve, ui.maxTolerableLoss, ui.timeHorizonYears, ui.sectorExposure, ui.countryExposure, ui.researchThesis].forEach(control => {
+    if (control) {
+      control.addEventListener('input', () => { if (typeof calculate === 'function') calculate(); });
+      control.addEventListener('focus', () => control.select?.());
+    }
+  });
+  ui.decisionTabs.forEach(tab => tab.addEventListener('click', () => activateDecisionTab(tab.dataset.decisionTab)));
+  if (ui.scenarioCaseEditor) {
+    ui.scenarioCaseEditor.addEventListener('change', (event) => {
+      const row = event.target.closest('[data-scenario-case]');
+      const field = event.target.dataset.scenarioField;
+      if (!row || !field) return;
+      updateDecisionScenarioCase(Number(row.dataset.scenarioCase), field, event.target.value);
+    });
+  }
+  if (ui.generateResearchMemoBtn) ui.generateResearchMemoBtn.addEventListener('click', generateResearchMemo);
+  if (ui.printDecisionReportBtn) ui.printDecisionReportBtn.addEventListener('click', printDecisionReport);
   ui.workspaceTabs.forEach(tab => tab.addEventListener('click', () => activateWorkspaceTab(tab.dataset.workspaceTab)));
   if (ui.addPositionBtn) ui.addPositionBtn.addEventListener('click', addCurrentPosition);
   if (ui.clearPositionsBtn) ui.clearPositionsBtn.addEventListener('click', clearPortfolioPositions);
