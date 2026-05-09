@@ -1370,6 +1370,16 @@ function renderDecisionReport(decision, input) {
   ui.decisionReportOutput.textContent = JSON.stringify(window.TaxDecision.serializeDecisionReport(decision, input), null, 2);
 }
 
+function researchMemoStatusLabel(memo) {
+  const status = String(memo?.status || '').toLowerCase();
+  if (status === 'rate-limited') return 'Rate limited';
+  if (status.includes('+ai')) return 'AI-enhanced memo';
+  if (status === 'fallback' || status === 'local') return 'Local evidence memo';
+  if (status === 'partial') return 'Partial evidence memo';
+  if (status === 'complete') return 'Evidence memo';
+  return memo?.status || 'memo';
+}
+
 function renderResearchMemo(memo) {
   if (!ui.researchMemoOutput) return;
   if (!memo) {
@@ -1377,27 +1387,41 @@ function renderResearchMemo(memo) {
     ui.researchMemoOutput.innerHTML = '';
     return;
   }
-  ui.researchMemoStatus.textContent = `${memo.status || 'memo'} · ${memo.generatedAt || ''}`;
+  ui.researchMemoStatus.textContent = `${researchMemoStatusLabel(memo)} · ${memo.generatedAt || ''}`;
+  const aiPanel = memo.aiSummary
+    ? `<article class="ai-memo-panel"><span>AI enhancement</span><strong>${localEscapeHtml(memo.aiProvider || 'Configured AI endpoint')}</strong><p>${localEscapeHtml(memo.aiSummary)}</p></article>`
+    : '';
   const sections = Object.values(memo.sections || {}).map(section => `<article class="research-section"><strong>${localEscapeHtml(section.title)}</strong>${(section.bullets || []).map(bullet => `<p>${localEscapeHtml(bullet)}</p>`).join('')}</article>`).join('');
   const evidenceRows = (memo.evidence || []).map(item => `<div class="evidence-row"><strong>${localEscapeHtml(item.claim)}</strong><span>${localEscapeHtml(item.evidence)}</span><small>${localEscapeHtml(item.sourceName)}${item.sourceDate ? ` · ${localEscapeHtml(item.sourceDate)}` : ''} · ${localEscapeHtml(item.confidence)} · ${localEscapeHtml(item.thesisImpact)}</small></div>`).join('');
-  ui.researchMemoOutput.innerHTML = `${sections}<div class="evidence-list">${evidenceRows}</div>`;
+  const sourceErrors = (memo.sourceErrors || []).length
+    ? `<div class="research-source-errors">${memo.sourceErrors.map(error => `<span>${localEscapeHtml(error)}</span>`).join('')}</div>`
+    : '';
+  ui.researchMemoOutput.innerHTML = `${aiPanel}${sections}${sourceErrors}${evidenceRows ? `<div class="evidence-list">${evidenceRows}</div>` : ''}`;
 }
 
 async function generateResearchMemo() {
   if (!window.TaxResearch?.generateResearchMemo) return;
   const input = typeof getInputs === 'function' ? getInputs() : {};
+  if (ui.generateResearchMemoBtn?.disabled) return;
+  if (ui.generateResearchMemoBtn) ui.generateResearchMemoBtn.disabled = true;
   if (ui.researchMemoStatus) ui.researchMemoStatus.textContent = 'Generating memo...';
-  const memo = await window.TaxResearch.generateResearchMemo({
-    symbol: selectedInstrument?.symbol || '',
-    targetSymbol: selectedTargetInstrument?.symbol || '',
-    thesis: ui.researchThesis?.value || '',
-    positionCurrency: input.positionCurrency,
-    taxCurrency: input.taxCurrency,
-    currency: input.currencyCode
-  });
-  researchMemos = [memo, ...researchMemos].slice(0, 8);
-  renderResearchMemo(memo);
-  saveWorkspaceLocal(true);
+  try {
+    const memo = await window.TaxResearch.generateResearchMemo({
+      symbol: selectedInstrument?.symbol || '',
+      targetSymbol: selectedTargetInstrument?.symbol || '',
+      thesis: ui.researchThesis?.value || '',
+      positionCurrency: input.positionCurrency,
+      taxCurrency: input.taxCurrency,
+      currency: input.currencyCode
+    });
+    if (!memo.rateLimited) {
+      researchMemos = [memo, ...researchMemos].slice(0, 8);
+      saveWorkspaceLocal(true);
+    }
+    renderResearchMemo(memo);
+  } finally {
+    if (ui.generateResearchMemoBtn) ui.generateResearchMemoBtn.disabled = false;
+  }
 }
 
 function printDecisionReport() {

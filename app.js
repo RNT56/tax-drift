@@ -54,6 +54,7 @@ const els = {
   tabs: [...document.querySelectorAll('[data-mode]')],
   sameResult: document.getElementById('sameResult'),
   switchResult: document.getElementById('switchResult'),
+  switchChartsPanel: document.getElementById('switchChartsPanel'),
   heroBreakEven: document.getElementById('heroBreakEven'),
   heroDrop: document.getElementById('heroDrop'),
   heroRequiredNew: document.getElementById('heroRequiredNew'),
@@ -94,6 +95,10 @@ const els = {
   requiredExcessReturn: document.getElementById('requiredExcessReturn'),
   fvOld: document.getElementById('fvOld'),
   fvNew: document.getElementById('fvNew'),
+  switchBreakEven: document.getElementById('switchBreakEven'),
+  switchBreakEvenReturn: document.getElementById('switchBreakEvenReturn'),
+  switchBreakEvenPrice: document.getElementById('switchBreakEvenPrice'),
+  switchBreakEvenNote: document.getElementById('switchBreakEvenNote'),
   futureComparison: document.getElementById('futureComparison'),
   fvDifference: document.getElementById('fvDifference'),
   switchAssetData: document.getElementById('switchAssetData'),
@@ -302,6 +307,10 @@ function showEmptyState() {
   setText(els.requiredExcessReturn, '—');
   setText(els.fvOld, '—');
   setText(els.fvNew, '—');
+  if (els.switchBreakEven) els.switchBreakEven.hidden = true;
+  setText(els.switchBreakEvenReturn, '—');
+  setText(els.switchBreakEvenPrice, '—');
+  setText(els.switchBreakEvenNote, 'Matches the hold case after taxes');
   setText(els.fvDifference, '—');
   els.futureComparison.hidden = true;
   els.fvDifference.classList.remove('is-positive', 'is-negative');
@@ -447,7 +456,7 @@ function renderSwitchAutoSizing(input, output, switchOutput) {
     els.switchAutoSizing.innerHTML = `
       <div class="switch-auto-sizing__header">
         <span>Auto sizing</span>
-        <strong>Select target</strong>
+        <strong class="switch-auto-sizing__status is-waiting">Select target</strong>
       </div>
       <p>Enter the current holding first, then choose a switch stock. Tax-adjusted cash and buyable shares are calculated automatically.</p>
     `;
@@ -463,6 +472,9 @@ function renderSwitchAutoSizing(input, output, switchOutput) {
   const sizingTone = switchOutput.hasBuyPrice
     ? (switchOutput.hasProjection ? 'Ready' : 'Needs target')
     : 'Awaiting buy price';
+  const sizingToneClass = switchOutput.hasBuyPrice
+    ? (switchOutput.hasProjection ? 'is-ready' : 'is-needed')
+    : 'is-waiting';
   const sourceText = pendingTargetPrice
     ? 'Live buy price applied'
     : (switchOutput.hasBuyPrice ? 'Manual buy price used' : 'Select a target or enter a current buy price');
@@ -470,7 +482,7 @@ function renderSwitchAutoSizing(input, output, switchOutput) {
   els.switchAutoSizing.innerHTML = `
     <div class="switch-auto-sizing__header">
       <span>Auto sizing</span>
-      <strong>${escapeHtml(sizingTone)}</strong>
+      <strong class="switch-auto-sizing__status ${sizingToneClass}">${escapeHtml(sizingTone)}</strong>
     </div>
     <div class="switch-auto-sizing__lead">
       <strong>${escapeHtml(targetName)}</strong>
@@ -565,20 +577,53 @@ function renderSwitchComparison(input, output, switchOutput) {
     ? formatShares(switchOutput.targetShares)
     : money(switchOutput.targetInvested);
   const targetPriceText = Number.isFinite(switchOutput.projectedTargetPrice) ? money(switchOutput.projectedTargetPrice) : '—';
+  const valueClass = (value, positiveIsGood = true) => {
+    if (!Number.isFinite(value) || value === 0) return '';
+    const good = positiveIsGood ? value > 0 : value < 0;
+    return good ? ' metric-value--positive' : ' metric-value--negative';
+  };
   const rows = [
-    ['Start value', money(output.sellValue), money(switchOutput.investableCash)],
-    ['Realized tax', money(0), money(output.taxDue)],
-    ['Costs', money(0), money(switchOutput.sellCost + switchOutput.buyCost)],
-    ['Current buy price', '—', switchOutput.hasBuyPrice ? money(switchOutput.buyPrice) : '—'],
-    ['Target price', '—', targetPriceText],
-    ['Shares', formatShares(output.sellShares), targetShareText],
-    [`Expected return (${horizon}y)`, formatPercent(input.expectedOldReturn), formatPercent(switchOutput.expectedReturn)],
-    ['Future value', money(output.futureValueOld), money(switchOutput.futureValueNew)],
-    ['Expected difference', '—', signedMoney(switchOutput.futureDifference, output.valueCurrency || input.currencyCode)],
-    ['Required target return', '—', formatPercent(switchOutput.requiredTargetReturn)],
-    ['Required target price', '—', money(switchOutput.requiredTargetPrice)],
-    ['Margin vs hurdle', '—', signedPercent(switchOutput.returnMargin)],
-    ['Expected new gain', '—', money(switchOutput.expectedGainAmount)]
+    { label: 'Start value', hold: money(output.sellValue), sw: money(switchOutput.investableCash) },
+    { label: 'Realized tax', hold: money(0), sw: money(output.taxDue) },
+    { label: 'Costs', hold: money(0), sw: money(switchOutput.sellCost + switchOutput.buyCost) },
+    { label: 'Current buy price', hold: '—', sw: switchOutput.hasBuyPrice ? money(switchOutput.buyPrice) : '—' },
+    { label: 'Target price', hold: '—', sw: targetPriceText },
+    { label: 'Shares', hold: formatShares(output.sellShares), sw: targetShareText },
+    { label: `Expected return (${horizon}y)`, hold: formatPercent(input.expectedOldReturn), sw: formatPercent(switchOutput.expectedReturn) },
+    { label: 'Future value', hold: money(output.futureValueOld), sw: money(switchOutput.futureValueNew) },
+    {
+      label: 'Expected difference',
+      hold: '—',
+      sw: signedMoney(switchOutput.futureDifference, output.valueCurrency || input.currencyCode),
+      valueClass: valueClass(switchOutput.futureDifference)
+    },
+    {
+      label: 'Break-even target return',
+      hold: '—',
+      sw: formatPercent(switchOutput.requiredTargetReturn),
+      rowClass: 'switch-comparison-row--highlight',
+      valueClass: 'metric-value--accent'
+    },
+    {
+      label: 'Break-even target price',
+      hold: '—',
+      sw: money(switchOutput.requiredTargetPrice),
+      rowClass: 'switch-comparison-row--highlight',
+      valueClass: 'metric-value--accent'
+    },
+    {
+      label: 'Margin vs hurdle',
+      hold: '—',
+      sw: signedPercent(switchOutput.returnMargin),
+      valueClass: valueClass(switchOutput.returnMargin)
+    },
+    {
+      label: 'Expected new gain',
+      hold: '—',
+      sw: signedMoney(switchOutput.expectedGainAmount, output.valueCurrency || input.currencyCode),
+      rowClass: 'switch-comparison-row--gain',
+      valueClass: valueClass(switchOutput.expectedGainAmount)
+    }
   ];
   const outcomeLabel = Number.isFinite(switchOutput.futureDifference)
     ? (switchOutput.futureDifference >= 0 ? 'Switch leads' : 'Hold leads')
@@ -595,11 +640,11 @@ function renderSwitchComparison(input, output, switchOutput) {
         <strong>${escapeHtml(oldName)}</strong>
         <strong>${escapeHtml(newName)}</strong>
       </div>
-      ${rows.map(([label, hold, sw]) => `
-        <div class="switch-comparison-row">
-          <span>${escapeHtml(label)}</span>
-          <strong>${escapeHtml(hold)}</strong>
-          <strong>${escapeHtml(sw)}</strong>
+      ${rows.map(row => `
+        <div class="switch-comparison-row ${row.rowClass || ''}">
+          <span>${escapeHtml(row.label)}</span>
+          <strong>${escapeHtml(row.hold)}</strong>
+          <strong class="${row.valueClass || ''}">${escapeHtml(row.sw)}</strong>
         </div>
       `).join('')}
     </div>
@@ -659,16 +704,29 @@ function renderSwitchHeatmap(input, output, switchOutput) {
   oldReturns.forEach((oldReturn) => {
     cells.push(`<div class="switch-heatmap__cell switch-heatmap__cell--axis">${escapeHtml(formatPercent(oldReturn))}</div>`);
     newReturns.forEach((newReturn) => {
-      const holdValue = output.sellValue * (1 + oldReturn);
+      const holdValue = input.hurdleMode === 'reduce-risk'
+        ? switchOutput.investableCash
+        : (typeof hurdleTargetValue === 'function'
+          ? hurdleTargetValue({
+            sellValue: output.sellValue,
+            oldReturn,
+            taxRate: input.taxRate,
+            hurdleMode: input.hurdleMode,
+            taxProfile: input.taxProfile
+          })
+          : output.sellValue * (1 + oldReturn));
       const switchValue = input.taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined'
         ? GermanTax.afterGermanTaxFutureValue(switchOutput.targetInvested, newReturn, input.taxProfile) + switchOutput.residualCash
         : afterTaxFutureValue(switchOutput.targetInvested, newReturn, input.taxRate, input.includeTaxOnNew) + switchOutput.residualCash;
       const diff = switchValue - holdValue;
-      const nearBreak = Math.abs(diff) <= Math.max(output.sellValue * 0.01, 1);
-      const klass = diff >= 0 ? 'switch-heatmap__cell--positive' : 'switch-heatmap__cell--negative';
+      const hasDiff = Number.isFinite(diff);
+      const nearBreak = hasDiff && Math.abs(diff) <= Math.max(output.sellValue * 0.01, 1);
+      const klass = hasDiff
+        ? (diff >= 0 ? 'switch-heatmap__cell--positive' : 'switch-heatmap__cell--negative')
+        : 'switch-heatmap__cell--neutral';
       cells.push(`
         <div class="switch-heatmap__cell ${klass}${nearBreak ? ' switch-heatmap__cell--break' : ''}">
-          ${escapeHtml(signedMoney(diff, output.valueCurrency || input.currencyCode))}
+          ${escapeHtml(hasDiff ? signedMoney(diff, output.valueCurrency || input.currencyCode) : '—')}
           <small>${escapeHtml(money(switchValue))}</small>
         </div>
       `);
@@ -851,6 +909,18 @@ function updateResults(input, output) {
   setText(els.cashRatio, formatPercent(switchOutput.investableCash / output.sellValue));
   setText(els.requiredExcessReturn, formatPercent(switchOutput.requiredExcessReturn));
   setText(els.fvOld, valueMoney(output.futureValueOld));
+  if (els.switchBreakEven) {
+    const hasBreakEvenPrice = switchOutput.hasBuyPrice && Number.isFinite(switchOutput.requiredTargetPrice);
+    els.switchBreakEven.hidden = !hasBreakEvenPrice;
+    setText(els.switchBreakEvenReturn, hasBreakEvenPrice ? formatPercent(switchOutput.requiredTargetReturn) : '—');
+    setText(els.switchBreakEvenPrice, hasBreakEvenPrice ? valueMoney(switchOutput.requiredTargetPrice) : '—');
+    setText(
+      els.switchBreakEvenNote,
+      hasBreakEvenPrice
+        ? `At this price, ${instrumentDisplayName(selectedTargetInstrument)} matches the hold case.`
+        : 'Enter the current target-stock buy price to calculate this.'
+    );
+  }
 
   const taxPhrase = input.includeTaxOnNew ? 'after tax on future positive gains' : 'without taxing future gains';
   const targetPhrase = selectedTargetInstrument
@@ -864,7 +934,10 @@ function updateResults(input, output) {
     els.switchExplanation.textContent = 'Enter either a target sell price or expected gain for the switched stock to project profit after tax.';
   } else {
     els.switchVerdict.textContent = 'Hurdle rate';
-    els.switchExplanation.textContent = `${targetPhrase} ${requiredNewText} gross return to match holding the old stock, ${taxPhrase}.`;
+    const breakEvenPriceText = Number.isFinite(switchOutput.requiredTargetPrice)
+      ? `, or ${valueMoney(switchOutput.requiredTargetPrice)} per share`
+      : '';
+    els.switchExplanation.textContent = `${targetPhrase} ${requiredNewText} gross return${breakEvenPriceText}, to match holding the old stock, ${taxPhrase}.`;
   }
 
   if (Number.isFinite(switchOutput.futureValueNew)) {
@@ -969,11 +1042,17 @@ function drawChart(input, output, switchOutput = calculateSwitchUpgrade(input, o
 
   const drawLine = (points, color, widthPx) => {
     ctx.beginPath();
+    let drawing = false;
     points.forEach((value, index) => {
+      if (!Number.isFinite(value)) {
+        drawing = false;
+        return;
+      }
       const x = xFor(index);
       const y = yFor(value);
-      if (index === 0) ctx.moveTo(x, y);
+      if (!drawing) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
+      drawing = true;
     });
     ctx.strokeStyle = color;
     ctx.lineWidth = widthPx;
@@ -988,17 +1067,19 @@ function drawChart(input, output, switchOutput = calculateSwitchUpgrade(input, o
   oldReturns.forEach((value, index) => {
     const x = xFor(index);
     const yOld = yFor(value);
-    const yReq = yFor(required[index]);
 
     ctx.fillStyle = '#98a2b3';
     ctx.beginPath();
     ctx.arc(x, yOld, 3.2, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = '#2b63ff';
-    ctx.beginPath();
-    ctx.arc(x, yReq, 4, 0, Math.PI * 2);
-    ctx.fill();
+    if (Number.isFinite(required[index])) {
+      const yReq = yFor(required[index]);
+      ctx.fillStyle = '#2b63ff';
+      ctx.beginPath();
+      ctx.arc(x, yReq, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     ctx.fillStyle = '#667085';
     ctx.font = '11px -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
@@ -1013,6 +1094,7 @@ function clearAssetPerformanceChart(message = 'Select an instrument to load hist
   if (canvas?.getContext) {
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width || 0, canvas.height || 0);
+    canvas.hidden = true;
   }
   if (els.assetPerformanceStatus) els.assetPerformanceStatus.textContent = message;
 }
@@ -1062,6 +1144,10 @@ async function loadAssetHistory(instrument, role, range, signal) {
 function syncModeSpecificInputs() {
   const isSwitch = activeMode === 'switch' || !els.switchResult?.classList.contains('is-hidden');
   document.body.classList.toggle('is-switch-mode', isSwitch);
+  if (els.switchChartsPanel) {
+    els.switchChartsPanel.hidden = !isSwitch;
+    els.switchChartsPanel.setAttribute('aria-hidden', String(!isSwitch));
+  }
   document.querySelectorAll('.field--switch-only').forEach((field) => {
     field.hidden = !isSwitch;
   });
@@ -1105,6 +1191,7 @@ function drawAssetPerformanceChart() {
     return;
   }
 
+  canvas.hidden = false;
   const rect = canvas.getBoundingClientRect();
   const cssWidth = Math.max(rect.width, 280);
   const cssHeight = 250;
@@ -1302,6 +1389,10 @@ function setMode(mode) {
   els.switchResult.classList.toggle('is-hidden', mode !== 'switch');
   els.sameResult.setAttribute('aria-hidden', String(mode !== 'same'));
   els.switchResult.setAttribute('aria-hidden', String(mode !== 'switch'));
+  if (els.switchChartsPanel) {
+    els.switchChartsPanel.hidden = mode !== 'switch';
+    els.switchChartsPanel.setAttribute('aria-hidden', String(mode !== 'switch'));
+  }
   syncModeSpecificInputs();
   requestAnimationFrame(calculate);
 }
@@ -2331,6 +2422,20 @@ els.historyRangeButtons.forEach((button) => {
     queueAssetHistoryRefresh(0);
   });
 });
+
+if (els.switchChartsPanel) {
+  els.switchChartsPanel.addEventListener('toggle', () => {
+    if (!els.switchChartsPanel.open || els.switchChartsPanel.hidden) return;
+    requestAnimationFrame(() => {
+      const input = getInputs();
+      const output = calculateValues(input);
+      const switchOutput = calculateSwitchUpgrade(input, output);
+      drawChart(input, output, switchOutput);
+      drawAssetPerformanceChart();
+      queueAssetHistoryRefresh(0);
+    });
+  });
+}
 
 els.includeTaxOnNew.addEventListener('change', calculate);
 if (els.switchAllowFractional) els.switchAllowFractional.addEventListener('change', calculate);

@@ -14,7 +14,7 @@
   <link rel="manifest" href="site.webmanifest">
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=13">
+  <link rel="stylesheet" href="styles.css?v=18">
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js" defer></script>
 </head>
 <body>
@@ -472,96 +472,133 @@
             <strong id="switchTargetReadiness">Manual target</strong>
           </div>
 
-          <div class="instrument-search instrument-search--target">
-            <label class="field field--search">
-              <span>Search target symbol or name</span>
-              <input id="targetInstrumentSearch" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. Apple, AAPL, MSFT, IWDA" aria-label="Search switch target stock, ETF or index" aria-autocomplete="list" aria-controls="targetInstrumentResults" aria-expanded="false">
-              <em>to buy</em>
-            </label>
-            <button id="clearTargetInstrumentSearch" type="button" class="icon-button" aria-label="Clear target instrument search">
-              <span class="icon-x" aria-hidden="true"></span>
-            </button>
+          <div class="switch-flow-rail" aria-label="Switch stock workflow">
+            <div class="switch-flow-step">
+              <span>01</span>
+              <strong>Sell</strong>
+              <small>Current lot</small>
+            </div>
+            <div class="switch-flow-step">
+              <span>02</span>
+              <strong>Tax</strong>
+              <small>Realized gain</small>
+            </div>
+            <div class="switch-flow-step">
+              <span>03</span>
+              <strong>Buy</strong>
+              <small>Target shares</small>
+            </div>
+            <div class="switch-flow-step">
+              <span>04</span>
+              <strong>Exit</strong>
+              <small>Target/gain</small>
+            </div>
           </div>
 
-          <div class="instrument-filters instrument-filters--target" aria-label="Switch target filters">
-            <label class="field field--compact">
-              <span>Asset type</span>
-              <select id="targetAssetTypeFilter" aria-label="Filter switch target by asset type">
-                <option value="all">All assets</option>
-                <option value="stock">Stocks</option>
-                <option value="etf">ETFs</option>
-                <option value="index">Indices</option>
-                <option value="crypto">Crypto</option>
-                <option value="fx">FX</option>
-              </select>
-            </label>
-            <label class="field field--compact">
-              <span>Country</span>
-              <select id="targetAssetCountryFilter" aria-label="Filter switch target by country">
-                <option value="all">All countries</option>
-                <option value="united states">United States</option>
-                <option value="germany">Germany</option>
-                <option value="netherlands">Netherlands</option>
-                <option value="france">France</option>
-                <option value="switzerland">Switzerland</option>
-                <option value="united kingdom">United Kingdom</option>
-                <option value="japan">Japan</option>
-                <option value="hong kong">Hong Kong</option>
-              </select>
-            </label>
-          </div>
-
-          <div id="targetInstrumentResults" class="instrument-results instrument-results--target" role="listbox" aria-label="Target instrument search results" hidden></div>
-
-          <article id="selectedTargetInstrument" class="selected-instrument selected-instrument--target" hidden>
-            <div class="selected-instrument__main">
-              <span class="asset-avatar" id="selectedTargetAvatar" aria-hidden="true">?</span>
-              <div>
-                <strong id="selectedTargetName">—</strong>
-                <span id="selectedTargetMeta">—</span>
+          <div class="switch-workspace">
+            <div class="switch-workspace__picker">
+              <div class="switch-zone-label">
+                <span>Target selection</span>
+                <strong>Choose what replaces the sale</strong>
               </div>
-            </div>
-            <div class="selected-instrument__actions">
-              <button id="useLatestTargetPriceBtn" type="button" class="primary-button">Apply latest</button>
-              <button id="refreshTargetPriceBtn" type="button" class="icon-button icon-button--compact" aria-label="Refresh latest target buy price" hidden>
-                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M15 9A6 6 0 0 1 4.76 13.24M3 9A6 6 0 0 1 13.24 4.76M13.5 2.25V5.25H10.5M4.5 15.75V12.75H7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </button>
-              <button id="clearTargetInstrumentBtn" type="button" class="ghost-button ghost-button--tight">Clear</button>
-            </div>
-
-            <div id="targetPriceTimestamp" class="price-timestamp" hidden>
-              <span id="targetPriceSourceLabel">—</span>
-              <span id="targetPriceTimeLabel">—</span>
-            </div>
-
-            <p id="targetMarketDataStatus" class="market-status">Select a target to fetch its current buy price.</p>
-          </article>
-
-          <div class="switch-projection-panel" aria-labelledby="switchProjectionTitle">
-            <div class="switch-projection-panel__header">
-              <div>
-                <span>Required projection</span>
-                <strong id="switchProjectionTitle">Target or expected gain</strong>
+              <div class="instrument-search instrument-search--target">
+                <label class="field field--search">
+                  <span>Search target symbol or name</span>
+                  <input id="targetInstrumentSearch" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. Apple, AAPL, MSFT, IWDA" aria-label="Search switch target stock, ETF or index" aria-autocomplete="list" aria-controls="targetInstrumentResults" aria-expanded="false">
+                  <em>to buy</em>
+                </label>
+                <button id="clearTargetInstrumentSearch" type="button" class="icon-button" aria-label="Clear target instrument search">
+                  <span class="icon-x" aria-hidden="true"></span>
+                </button>
               </div>
-              <span id="switchProjectionStatus" class="switch-projection-status">Target or gain needed</span>
+
+              <div class="instrument-filters instrument-filters--target" aria-label="Switch target filters">
+                <label class="field field--compact">
+                  <span>Asset type</span>
+                  <select id="targetAssetTypeFilter" aria-label="Filter switch target by asset type">
+                    <option value="all">All assets</option>
+                    <option value="stock">Stocks</option>
+                    <option value="etf">ETFs</option>
+                    <option value="index">Indices</option>
+                    <option value="crypto">Crypto</option>
+                    <option value="fx">FX</option>
+                  </select>
+                </label>
+                <label class="field field--compact">
+                  <span>Country</span>
+                  <select id="targetAssetCountryFilter" aria-label="Filter switch target by country">
+                    <option value="all">All countries</option>
+                    <option value="united states">United States</option>
+                    <option value="germany">Germany</option>
+                    <option value="netherlands">Netherlands</option>
+                    <option value="france">France</option>
+                    <option value="switzerland">Switzerland</option>
+                    <option value="united kingdom">United Kingdom</option>
+                    <option value="japan">Japan</option>
+                    <option value="hong kong">Hong Kong</option>
+                  </select>
+                </label>
+              </div>
+
+              <div id="targetInstrumentResults" class="instrument-results instrument-results--target" role="listbox" aria-label="Target instrument search results" hidden></div>
+
+              <article id="selectedTargetInstrument" class="selected-instrument selected-instrument--target" hidden>
+                <div class="selected-instrument__main">
+                  <span class="asset-avatar" id="selectedTargetAvatar" aria-hidden="true">?</span>
+                  <div>
+                    <strong id="selectedTargetName">—</strong>
+                    <span id="selectedTargetMeta">—</span>
+                  </div>
+                </div>
+                <div class="selected-instrument__actions">
+                  <button id="useLatestTargetPriceBtn" type="button" class="primary-button">Apply latest</button>
+                  <button id="refreshTargetPriceBtn" type="button" class="icon-button icon-button--compact" aria-label="Refresh latest target buy price" hidden>
+                    <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M15 9A6 6 0 0 1 4.76 13.24M3 9A6 6 0 0 1 13.24 4.76M13.5 2.25V5.25H10.5M4.5 15.75V12.75H7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  </button>
+                  <button id="clearTargetInstrumentBtn" type="button" class="ghost-button ghost-button--tight">Clear</button>
+                </div>
+
+                <div id="targetPriceTimestamp" class="price-timestamp" hidden>
+                  <span id="targetPriceSourceLabel">—</span>
+                  <span id="targetPriceTimeLabel">—</span>
+                </div>
+
+                <p id="targetMarketDataStatus" class="market-status">Select a target to fetch its current buy price.</p>
+              </article>
             </div>
 
-            <div class="field-grid field-grid--switch-assumptions">
-              <label class="field field--projection-required">
-                <span>Target sell price</span>
-                <input id="switchTargetPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 720,00" aria-label="Expected switch target sell price per share" aria-describedby="switchProjectionStatus">
-                <em><span class="currencyUnit">EUR</span> / share</em>
-              </label>
+            <div class="switch-workspace__projection">
+              <div class="switch-zone-label">
+                <span>Switch outcome</span>
+                <strong>Size now, project later</strong>
+              </div>
+              <div class="switch-projection-panel" aria-labelledby="switchProjectionTitle">
+                <div class="switch-projection-panel__header">
+                  <div>
+                    <span>Required projection</span>
+                    <strong id="switchProjectionTitle">Target or expected gain</strong>
+                  </div>
+                  <span id="switchProjectionStatus" class="switch-projection-status">Target or gain needed</span>
+                </div>
 
-              <label class="field field--projection-required">
-                <span>Expected gain</span>
-                <input id="expectedNewReturn" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 12" aria-label="Expected switch stock gain" aria-describedby="switchProjectionStatus">
-                <em>%</em>
-              </label>
+                <div class="field-grid field-grid--switch-assumptions">
+                  <label class="field field--projection-required">
+                    <span>Target sell price</span>
+                    <input id="switchTargetPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 720,00" aria-label="Expected switch target sell price per share" aria-describedby="switchProjectionStatus">
+                    <em><span class="currencyUnit">EUR</span> / share</em>
+                  </label>
+
+                  <label class="field field--projection-required">
+                    <span>Expected gain</span>
+                    <input id="expectedNewReturn" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 12" aria-label="Expected switch stock gain" aria-describedby="switchProjectionStatus">
+                    <em>%</em>
+                  </label>
+                </div>
+              </div>
+
+              <div id="switchAutoSizing" class="switch-auto-sizing" aria-live="polite"></div>
             </div>
           </div>
-
-          <div id="switchAutoSizing" class="switch-auto-sizing" aria-live="polite"></div>
 
           <details class="switch-advanced-details">
             <summary>Manual buy price / execution</summary>
@@ -922,14 +959,14 @@
           </div>
         </article>
 
-        <article id="switchResult" class="result-card is-hidden" data-result-mode="switch" role="tabpanel" aria-labelledby="switchTab" tabindex="0" aria-hidden="true">
+        <article id="switchResult" class="result-card result-card--switch is-hidden" data-result-mode="switch" role="tabpanel" aria-labelledby="switchTab" tabindex="0" aria-hidden="true">
           <div class="card-kicker">
             <span>Different stock</span>
             <strong id="switchVerdict">—</strong>
           </div>
 
           <div class="big-result big-result--switch">
-            <span>Required new-stock return</span>
+            <span>Break-even target return</span>
             <strong id="requiredNewReturn">—</strong>
             <small id="switchExplanation">—</small>
           </div>
@@ -953,6 +990,19 @@
             </div>
           </div>
 
+          <div id="switchBreakEven" class="switch-break-even" hidden>
+            <div>
+              <span>Break-even target return</span>
+              <strong id="switchBreakEvenReturn">—</strong>
+              <small>Required gain on the new stock</small>
+            </div>
+            <div>
+              <span>Break-even price / share</span>
+              <strong id="switchBreakEvenPrice">—</strong>
+              <small id="switchBreakEvenNote">Matches the hold case after taxes</small>
+            </div>
+          </div>
+
           <div id="futureComparison" class="comparison-strip" hidden>
             <span>Future value difference</span>
             <strong id="fvDifference">—</strong>
@@ -966,36 +1016,39 @@
 
           <div id="switchMapping" class="switch-mapping" hidden></div>
 
-          <details class="chart-details">
-            <summary>Charts</summary>
-            <div class="asset-performance">
-              <div class="asset-performance__header">
-                <div>
-                  <span>Actual performance</span>
-                  <strong>Selected assets</strong>
-                </div>
-                <div class="history-range" aria-label="History range">
-                  <button type="button" class="history-range__button" data-history-range="1M">1M</button>
-                  <button type="button" class="history-range__button" data-history-range="6M">6M</button>
-                  <button type="button" class="history-range__button is-active" data-history-range="1Y">1Y</button>
-                  <button type="button" class="history-range__button" data-history-range="5Y">5Y</button>
-                </div>
-              </div>
-              <canvas id="assetPerformanceChart" width="640" height="300" aria-label="Actual selected asset performance chart"></canvas>
-              <p id="assetPerformanceStatus" class="asset-performance__status">Select an instrument to load history.</p>
-            </div>
-            <div class="chart-subhead">
-              <span>Return sensitivity</span>
-              <strong>Hurdle curve</strong>
-            </div>
-            <div class="chart-legend">
-              <span><i class="legend-dot legend-dot--new"></i>Required new return</span>
-              <span><i class="legend-dot legend-dot--old"></i>Old return reference</span>
-            </div>
-            <canvas id="returnChart" width="640" height="320" aria-label="Required new return chart"></canvas>
-            <div id="switchHeatmap" class="switch-heatmap" aria-label="Hold versus switch return heatmap"></div>
-          </details>
         </article>
+
+        <details id="switchChartsPanel" class="chart-details switch-charts-panel" hidden aria-label="Switch stock charts">
+          <summary>Charts</summary>
+          <div class="asset-performance">
+            <div class="asset-performance__header">
+              <div>
+                <span>Actual performance</span>
+                <strong>Selected assets</strong>
+              </div>
+              <div class="history-range" aria-label="History range">
+                <button type="button" class="history-range__button" data-history-range="1M">1M</button>
+                <button type="button" class="history-range__button" data-history-range="6M">6M</button>
+                <button type="button" class="history-range__button is-active" data-history-range="1Y">1Y</button>
+                <button type="button" class="history-range__button" data-history-range="5Y">5Y</button>
+              </div>
+            </div>
+            <p class="chart-explainer">Both selected assets are normalized to 0% at the first loaded close so the line chart compares relative performance, not share price levels.</p>
+            <canvas id="assetPerformanceChart" width="640" height="300" aria-label="Actual selected asset performance chart" hidden></canvas>
+            <p id="assetPerformanceStatus" class="asset-performance__status">Select an instrument to load history.</p>
+          </div>
+          <div class="chart-subhead">
+            <span>Return sensitivity</span>
+            <strong>Hurdle curve</strong>
+          </div>
+          <p class="chart-explainer">Required new return is the gross target-stock return needed to match the selected hold hurdle after tax settings, residual cash, and share rounding.</p>
+          <div class="chart-legend">
+            <span><i class="legend-dot legend-dot--new"></i>Required new return</span>
+            <span><i class="legend-dot legend-dot--old"></i>Old return reference</span>
+          </div>
+          <canvas id="returnChart" width="640" height="320" aria-label="Required new return chart"></canvas>
+          <div id="switchHeatmap" class="switch-heatmap" aria-label="Hold versus switch return heatmap"></div>
+        </details>
 
         <!-- ── Export / share actions ───────────────────────── -->
         <div class="export-row">
@@ -1110,7 +1163,7 @@
         <div class="decision-tabs" role="tablist" aria-label="Decision Lab tabs">
           <button type="button" class="decision-tab is-active" data-decision-tab="scenarios" role="tab" aria-selected="true">Scenarios</button>
           <button type="button" class="decision-tab" data-decision-tab="risk" role="tab" aria-selected="false">Portfolio Risk</button>
-          <button type="button" class="decision-tab" data-decision-tab="research" role="tab" aria-selected="false">Research Memo</button>
+          <button type="button" class="decision-tab" data-decision-tab="research" role="tab" aria-selected="false">AI Research</button>
           <button type="button" class="decision-tab" data-decision-tab="assumptions" role="tab" aria-selected="false">Assumptions</button>
           <button type="button" class="decision-tab" data-decision-tab="alerts" role="tab" aria-selected="false">Alerts</button>
           <button type="button" class="decision-tab" data-decision-tab="report" role="tab" aria-selected="false">Report</button>
@@ -1195,6 +1248,6 @@
   <script src="app-decision.js" defer></script>
   <script src="app-research.js" defer></script>
   <script src="app-ui.js" defer></script>
-  <script src="app.js?v=13" defer></script>
+  <script src="app.js?v=18" defer></script>
 </body>
 </html>

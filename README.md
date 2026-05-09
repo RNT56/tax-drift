@@ -48,6 +48,8 @@ The app works without API keys in anonymous/manual mode. Netlify Functions and p
 | `FRED_API_KEY` | Optional | Macro context in research memos | Research memo still works without it, but FRED evidence is skipped. |
 | `AI_RESEARCH_URL` | Optional | AI-compatible research memo enhancement | Receives the evidence memo and must return JSON. Disabled unless configured. |
 | `AI_RESEARCH_API_KEY` | Optional | Authorization for `AI_RESEARCH_URL` | Sent as a Bearer token only to the configured endpoint. |
+| `AI_RESEARCH_RATE_LIMIT` | Optional | Research memo request limit | Defaults to 5/hour when AI enhancement is configured, otherwise 20/hour. |
+| `AI_RESEARCH_RATE_WINDOW_SECONDS` | Optional | Research memo rate-limit window | Defaults to 3600 seconds. |
 | `DATA_ENCRYPTION_KEY` | Required only for persistent premium backend storage | Encrypting workspace/import/report/alert Blobs | Not needed for local anonymous use. Required before relying on Netlify Blobs for user financial data. Use a long random value. |
 | `RESEND_API_KEY` | Optional | Email alerts | Not needed unless `email` alert delivery is enabled. In-app/local alerts work without it. |
 | `PREMIUM_API_TOKEN_HASHES` | Optional | Non-Identity API access/testing | Format is `sha256(token):userId`, comma-separated for multiple tokens. Netlify Identity is preferred for real users. |

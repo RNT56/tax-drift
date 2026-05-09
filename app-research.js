@@ -67,6 +67,26 @@
     };
   }
 
+  function buildRateLimitedMemo(input = {}, payload = {}) {
+    const retryAfterSeconds = Number(payload.retryAfterSeconds);
+    const retryText = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      ? `Try again in about ${Math.ceil(retryAfterSeconds / 60)} minute${retryAfterSeconds > 60 ? 's' : ''}.`
+      : 'Try again later.';
+    return {
+      symbol: upper(input.symbol || input.ticker),
+      targetSymbol: upper(input.targetSymbol),
+      generatedAt: new Date().toISOString(),
+      status: 'rate-limited',
+      rateLimited: true,
+      retryAfterSeconds: Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : 0,
+      sections: {
+        rateLimit: { title: 'Research memo limit', bullets: [retryText] }
+      },
+      evidence: [],
+      sourceErrors: [clean(payload.error, 'Research memo rate limit exceeded.')]
+    };
+  }
+
   async function generateResearchMemo(input = {}) {
     if (typeof window === 'undefined' || window.location?.protocol === 'file:') return buildLocalMemo(input);
     try {
@@ -76,6 +96,7 @@
         body: JSON.stringify(input)
       });
       const payload = await response.json().catch(() => ({}));
+      if (response.status === 429) return buildRateLimitedMemo(input, payload);
       if (!response.ok || !payload.memo) return buildLocalMemo(input);
       return payload.memo;
     } catch {
@@ -86,6 +107,7 @@
   return {
     evidence,
     buildLocalMemo,
+    buildRateLimitedMemo,
     generateResearchMemo
   };
 });

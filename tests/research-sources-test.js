@@ -88,6 +88,25 @@ function parse(response) {
   assert.equal(response.statusCode, 200);
   assert.equal(parse(response).memo.symbol, 'TEST');
 
+  const rateLimitStore = new Map();
+  const firstLimitedEvent = event('POST', { symbol: 'TEST' });
+  firstLimitedEvent.headers = { 'x-forwarded-for': '203.0.113.42' };
+  const secondLimitedEvent = event('POST', { symbol: 'TEST' });
+  secondLimitedEvent.headers = { 'x-forwarded-for': '203.0.113.42' };
+  const rateOptions = {
+    env: { AI_RESEARCH_RATE_LIMIT: '1', AI_RESEARCH_RATE_WINDOW_SECONDS: '60' },
+    rateLimitStore,
+    companyTickers,
+    secSubmissions,
+    secCompanyFacts
+  };
+  const firstLimitedResponse = await ResearchMemoFunction.route(firstLimitedEvent, {}, rateOptions);
+  const secondLimitedResponse = await ResearchMemoFunction.route(secondLimitedEvent, {}, rateOptions);
+  assert.equal(firstLimitedResponse.statusCode, 200);
+  assert.equal(secondLimitedResponse.statusCode, 429);
+  assert.equal(parse(secondLimitedResponse).error, 'Research memo rate limit exceeded.');
+  assert.equal(secondLimitedResponse.headers['Retry-After'], '60');
+
   const upgraded = sanitizeWorkspaceInput({
     schemaVersion: 1,
     name: 'Legacy',
