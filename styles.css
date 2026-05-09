@@ -348,7 +348,7 @@ main {
 }
 
 .field:focus-within {
-  border-color: rgba(16, 24, 40, 0.16);
+  border-color: var(--line);
   box-shadow: none;
   transform: none;
 }
@@ -365,6 +365,8 @@ main {
 }
 
 .field input {
+  appearance: none;
+  -webkit-appearance: none;
   width: 100%;
   min-width: 0;
   padding: 0;
@@ -376,6 +378,25 @@ main {
   font-weight: 760;
   line-height: 1.05;
   letter-spacing: 0;
+}
+
+.field input:focus,
+.field input:focus-visible,
+.field select:focus,
+.field select:focus-visible,
+.field textarea:focus,
+.field textarea:focus-visible,
+input[type="search"]:focus,
+input[type="search"]:focus-visible {
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.field:has(input:focus),
+.field:has(select:focus),
+.field:has(textarea:focus) {
+  border-color: var(--line);
+  box-shadow: none;
 }
 
 .field input::placeholder {
@@ -3423,7 +3444,7 @@ main {
 
 .field:focus-within {
   transform: none;
-  border-color: rgba(16, 24, 40, 0.14);
+  border-color: var(--line);
   box-shadow: none;
 }
 
