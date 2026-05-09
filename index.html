@@ -7,10 +7,15 @@
   <meta name="color-scheme" content="light">
   <meta name="description" content="A mobile-first tax-aware stock rebalance calculator for sell/rebuy and switch-stock decisions — with multi-lot support, partial sells, FX handling and portfolio rebalancing.">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="TaxSwitch">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>TaxSwitch — Investment Tax & Rebalance Calculator</title>
   <link rel="manifest" href="site.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="stylesheet" href="styles.css">
+  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -22,32 +27,48 @@
           <span></span>
         </div>
         <strong>TaxSwitch</strong>
-        <span id="apiStatusChip" class="hero-pill hero-pill--status" aria-live="polite">
-          <span class="status-dot status-dot--checking"></span>
-          <span id="apiStatusLabel">Checking…</span>
-        </span>
-        <span class="hero-pill">Germany preset</span>
+        <div class="app-status-group" aria-label="App status">
+          <span id="apiStatusChip" class="hero-pill hero-pill--status" aria-live="polite">
+            <span class="status-dot status-dot--checking"></span>
+            <span id="apiStatusLabel">Checking…</span>
+          </span>
+          <span class="hero-pill">Germany preset</span>
+          <button id="authStatusBtn" type="button" class="hero-pill hero-pill--button">Sign in</button>
+          <button id="installAppBtn" type="button" class="hero-pill hero-pill--button" hidden>Install app</button>
+        </div>
       </div>
 
       <div class="hero__copy">
-        <p class="eyebrow">Tax-aware investing</p>
-        <h1 id="pageTitle">Know the hurdle before you sell.</h1>
-        <p class="subtitle">A compact calculator for sell/rebuy, repositioning, multi-lot, partial sell and tax-drag decisions.</p>
-      </div>
+        <div>
+          <p class="eyebrow">Tax-aware investing</p>
+          <h1 id="pageTitle">TaxSwitch</h1>
+          <p class="subtitle">Know the tax hurdle before you sell, rebuy or switch a position.</p>
+        </div>
 
-      <div class="hero-metrics" aria-label="Key live results">
-        <article class="metric-card metric-card--primary">
-          <span class="metric-label">Break-even rebuy</span>
-          <strong id="heroBreakEven">—</strong>
-          <small id="heroDrop">—</small>
-        </article>
-        <article class="metric-card">
-          <span class="metric-label">Switch hurdle</span>
-          <strong id="heroRequiredNew">—</strong>
-          <small>gross return needed</small>
-        </article>
+        <div class="hero-metrics" aria-label="Key live results" aria-live="polite">
+          <article class="metric-card metric-card--primary">
+            <span class="metric-label">Break-even rebuy</span>
+            <strong id="heroBreakEven">—</strong>
+            <small id="heroDrop">—</small>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Switch hurdle</span>
+            <strong id="heroRequiredNew">—</strong>
+            <small>gross return needed</small>
+          </article>
+        </div>
       </div>
     </header>
+
+    <div id="installPrompt" class="install-prompt" role="status" hidden>
+      <span id="installPromptText">Install TaxSwitch for faster mobile access and offline use.</span>
+      <div class="install-prompt__actions">
+        <button id="installPromptBtn" type="button" class="primary-button primary-button--small">Install</button>
+        <button id="dismissInstallPrompt" type="button" class="icon-button icon-button--small" aria-label="Dismiss install prompt">
+          <span class="icon-x" aria-hidden="true"></span>
+        </button>
+      </div>
+    </div>
 
     <main>
       <!-- ── 01 Instrument ─────────────────────────────────────── -->
@@ -66,7 +87,37 @@
             <input id="instrumentSearch" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. Apple, AAPL, DAX, MSCI World" aria-label="Search stock, ETF or index">
             <em>optional</em>
           </label>
-          <button id="clearInstrumentSearch" type="button" class="icon-button" aria-label="Clear instrument search">×</button>
+          <button id="clearInstrumentSearch" type="button" class="icon-button" aria-label="Clear instrument search">
+            <span class="icon-x" aria-hidden="true"></span>
+          </button>
+        </div>
+
+        <div class="instrument-filters" aria-label="Instrument filters">
+          <label class="field field--compact">
+            <span>Asset type</span>
+            <select id="assetTypeFilter" aria-label="Filter by asset type">
+              <option value="all">All assets</option>
+              <option value="stock">Stocks</option>
+              <option value="etf">ETFs</option>
+              <option value="index">Indices</option>
+              <option value="crypto">Crypto</option>
+              <option value="fx">FX</option>
+            </select>
+          </label>
+          <label class="field field--compact">
+            <span>Country</span>
+            <select id="assetCountryFilter" aria-label="Filter by country">
+              <option value="all">All countries</option>
+              <option value="united states">United States</option>
+              <option value="germany">Germany</option>
+              <option value="netherlands">Netherlands</option>
+              <option value="france">France</option>
+              <option value="switzerland">Switzerland</option>
+              <option value="united kingdom">United Kingdom</option>
+              <option value="japan">Japan</option>
+              <option value="hong kong">Hong Kong</option>
+            </select>
+          </label>
         </div>
 
         <div id="instrumentResults" class="instrument-results" role="listbox" aria-label="Instrument search results" hidden></div>
@@ -81,6 +132,10 @@
           </div>
           <div class="selected-instrument__actions">
             <button id="useLatestPriceBtn" type="button" class="primary-button">Use latest price</button>
+            <button id="refreshPriceBtn" type="button" class="icon-button icon-button--compact" aria-label="Refresh latest price" hidden>
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M15 9A6 6 0 0 1 4.76 13.24M3 9A6 6 0 0 1 13.24 4.76M13.5 2.25V5.25H10.5M4.5 15.75V12.75H7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button id="manualPriceBtn" type="button" class="ghost-button ghost-button--tight">Manual price</button>
             <button id="clearInstrumentBtn" type="button" class="ghost-button ghost-button--tight">Clear</button>
           </div>
 
@@ -89,6 +144,7 @@
             <div class="price-confirmation__value">
               <span>Latest price found:</span>
               <strong id="confirmPrice">—</strong>
+              <small id="confirmPriceMeta">—</small>
             </div>
             <div class="price-confirmation__actions">
               <button id="confirmPriceBtn" type="button" class="primary-button primary-button--small">Use this price</button>
@@ -106,6 +162,7 @@
         </article>
       </section>
 
+      <div class="main-grid">
       <!-- ── 02 Position ───────────────────────────────────────── -->
       <section class="panel panel--inputs" aria-labelledby="inputsTitle">
         <div class="section-heading">
@@ -167,13 +224,13 @@
         </details>
       </section>
 
-      <!-- ── 03 Tax & costs ────────────────────────────────────── -->
+      <!-- ── 03 Tax, costs & FX ───────────────────────────────── -->
       <section class="panel" aria-labelledby="taxTitle">
         <div class="section-heading section-heading--compact">
           <span class="section-number">03</span>
           <div>
-            <h2 id="taxTitle">Tax & costs</h2>
-            <p>German tax preset is prefilled and adjustable.</p>
+            <h2 id="taxTitle">Tax, costs & FX</h2>
+            <p>German tax preset. FX is optional for cross-currency positions.</p>
           </div>
         </div>
 
@@ -196,47 +253,117 @@
             <em><span class="currencyUnit">EUR</span> total</em>
           </label>
         </div>
-      </section>
 
-      <!-- ── 03b FX Handling ───────────────────────────────────── -->
-      <section class="panel" aria-labelledby="fxTitle">
-        <div class="section-heading section-heading--compact">
-          <span class="section-number">03b</span>
-          <div>
-            <h2 id="fxTitle">FX mode</h2>
-            <p>Optional. For cross-currency positions (e.g. USD stock, EUR tax).</p>
+        <details id="germanTaxDetails" class="premium-details">
+          <summary>German accuracy pack</summary>
+          <div class="field-grid field-grid--two">
+            <label class="field">
+              <span>Tax mode</span>
+              <select id="taxProfileMode" aria-label="Tax calculation mode">
+                <option value="flat">Simple flat rate</option>
+                <option value="de">German detailed</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Filing status</span>
+              <select id="filingStatus" aria-label="Filing status">
+                <option value="single">Single</option>
+                <option value="joint">Joint</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Saver allowance left</span>
+              <input id="saverAllowanceRemaining" type="text" inputmode="decimal" autocomplete="off" placeholder="1000" aria-label="Remaining saver allowance">
+              <em><span class="currencyUnit">EUR</span></em>
+            </label>
+
+            <label class="field">
+              <span>Church tax</span>
+              <select id="churchTaxRate" aria-label="Church tax rate">
+                <option value="0">0%</option>
+                <option value="0.08">8%</option>
+                <option value="0.09">9%</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Tax class</span>
+              <select id="instrumentTaxClass" aria-label="Instrument tax class">
+                <option value="stock">Stock</option>
+                <option value="etf-equity">ETF equity</option>
+                <option value="etf-mixed">ETF mixed</option>
+                <option value="etf-real-estate">ETF real estate</option>
+                <option value="etf-foreign-real-estate">ETF foreign real estate</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>Stock loss pot</span>
+              <input id="stockLossPot" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Stock loss pot">
+              <em><span class="currencyUnit">EUR</span></em>
+            </label>
+
+            <label class="field">
+              <span>Other loss pot</span>
+              <input id="otherLossPot" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Other loss pot">
+              <em><span class="currencyUnit">EUR</span></em>
+            </label>
+
+            <label class="field">
+              <span>Foreign tax paid</span>
+              <input id="foreignTaxPaid" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Foreign tax paid">
+              <em><span class="currencyUnit">EUR</span></em>
+            </label>
+
+            <label class="field">
+              <span>Foreign tax creditable</span>
+              <input id="foreignTaxCreditable" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Foreign tax creditable">
+              <em><span class="currencyUnit">EUR</span></em>
+            </label>
+
+            <label class="field">
+              <span>Prior taxed Vorab</span>
+              <input id="priorTaxedVorabpauschale" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Prior taxed Vorabpauschale">
+              <em><span class="currencyUnit">EUR</span></em>
+            </label>
           </div>
-        </div>
+        </details>
 
-        <div class="fx-mode-row" aria-label="FX mode selector">
-          <button type="button" class="chip is-active" data-fx-mode="same">Same currency</button>
-          <button type="button" class="chip" data-fx-mode="manual">Manual FX</button>
-        </div>
+        <div class="fx-subsection">
+          <div class="fx-mode-row" aria-label="FX mode selector">
+            <span class="fx-mode-label">FX</span>
+            <button type="button" class="chip is-active" data-fx-mode="same">Same currency</button>
+            <button type="button" class="chip" data-fx-mode="manual">Manual FX</button>
+          </div>
 
-        <div id="fxFields" class="field-grid field-grid--two fx-fields" hidden>
-          <label class="field">
-            <span>Position currency</span>
-            <input id="positionCurrency" type="text" inputmode="latin" autocomplete="off" value="USD" maxlength="3" aria-label="Position currency">
-            <em>stock prices</em>
-          </label>
+          <div id="fxFields" class="field-grid field-grid--two fx-fields" hidden>
+            <label class="field">
+              <span>Position currency</span>
+              <input id="positionCurrency" type="text" inputmode="latin" autocomplete="off" value="USD" maxlength="3" aria-label="Position currency">
+              <em>stock prices</em>
+            </label>
 
-          <label class="field">
-            <span>Tax currency</span>
-            <input id="taxCurrency" type="text" inputmode="latin" autocomplete="off" value="EUR" maxlength="3" aria-label="Tax currency">
-            <em>for tax calc</em>
-          </label>
+            <label class="field">
+              <span>Tax currency</span>
+              <input id="taxCurrency" type="text" inputmode="latin" autocomplete="off" value="EUR" maxlength="3" aria-label="Tax currency">
+              <em>for tax calc</em>
+            </label>
 
-          <label class="field">
-            <span>FX rate at buy</span>
-            <input id="fxRateBuy" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 0,92" aria-label="FX rate at purchase">
-            <em>tax/pos</em>
-          </label>
+            <label class="field">
+              <span>FX rate at buy</span>
+              <input id="fxRateBuy" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 0,92" aria-label="FX rate at purchase">
+              <em>tax/pos</em>
+            </label>
 
-          <label class="field">
-            <span>FX rate now</span>
-            <input id="fxRateNow" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 0,91" aria-label="Current FX rate">
-            <em>tax/pos</em>
-          </label>
+            <label class="field">
+              <span>FX rate now</span>
+              <input id="fxRateNow" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 0,91" aria-label="Current FX rate">
+              <em>tax/pos</em>
+            </label>
+          </div>
         </div>
       </section>
 
@@ -270,7 +397,7 @@
           </label>
         </div>
 
-        <div class="field-grid" style="margin-top: 10px;">
+        <div class="field-grid field-grid--scenario-prices">
           <label class="field">
             <span>Rebuy price</span>
             <input id="rebuyPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 110,00" aria-label="Rebuy price per share">
@@ -379,6 +506,123 @@
             </div>
           </div>
         </div>
+
+        <details class="workspace-panel">
+          <summary>Workspace, broker import & FIFO</summary>
+          <div class="field-grid field-grid--two">
+            <label class="field">
+              <span>Workspace name</span>
+              <input id="workspaceName" type="text" autocomplete="off" placeholder="Baseline scenario" aria-label="Workspace name">
+            </label>
+            <label class="field">
+              <span>Auth token</span>
+              <input id="premiumAuthToken" type="password" autocomplete="off" placeholder="Optional backend token" aria-label="Premium backend authorization token">
+              <em>local if empty</em>
+            </label>
+          </div>
+
+          <div class="workspace-actions">
+            <button id="saveWorkspaceBtn" type="button" class="ghost-button ghost-button--tight">Save workspace</button>
+            <button id="loadWorkspaceBtn" type="button" class="ghost-button ghost-button--tight">Load workspace</button>
+            <button id="syncWorkspaceBtn" type="button" class="ghost-button ghost-button--tight">Sync backend</button>
+          </div>
+
+          <div class="workspace-tabs" role="tablist" aria-label="Workspace tabs">
+            <button id="positionsWorkspaceTab" type="button" class="workspace-tab is-active" data-workspace-tab="positions" role="tab" aria-selected="true" aria-controls="positionsWorkspacePanel">Positions</button>
+            <button id="targetsWorkspaceTab" type="button" class="workspace-tab" data-workspace-tab="targets" role="tab" aria-selected="false" aria-controls="targetsWorkspacePanel">Targets</button>
+            <button id="optimizerWorkspaceTab" type="button" class="workspace-tab" data-workspace-tab="optimizer" role="tab" aria-selected="false" aria-controls="optimizerWorkspacePanel">Optimizer</button>
+            <button id="scenariosWorkspaceTab" type="button" class="workspace-tab" data-workspace-tab="scenarios" role="tab" aria-selected="false" aria-controls="scenariosWorkspacePanel">Scenarios</button>
+          </div>
+
+          <div id="positionsWorkspacePanel" class="workspace-tab-panel" role="tabpanel" aria-labelledby="positionsWorkspaceTab">
+            <div class="workspace-actions workspace-actions--flush">
+              <button id="addPositionBtn" type="button" class="ghost-button ghost-button--tight">Add current position</button>
+              <button id="clearPositionsBtn" type="button" class="ghost-button ghost-button--tight ghost-button--danger">Clear positions</button>
+            </div>
+            <div id="positionsList" class="workspace-list" aria-live="polite"></div>
+          </div>
+
+          <div id="targetsWorkspacePanel" class="workspace-tab-panel" role="tabpanel" aria-labelledby="targetsWorkspaceTab" hidden>
+            <div id="targetSummary" class="workspace-status">No positions yet.</div>
+            <div id="targetsList" class="workspace-list" aria-live="polite"></div>
+          </div>
+
+          <div id="optimizerWorkspacePanel" class="workspace-tab-panel" role="tabpanel" aria-labelledby="optimizerWorkspaceTab" hidden>
+            <div class="field-grid field-grid--two">
+              <label class="field">
+                <span>Objective</span>
+                <select id="optimizerObjective" aria-label="Optimizer objective">
+                  <option value="balanced">Balanced</option>
+                  <option value="min-tax">Min tax</option>
+                  <option value="min-drift">Min drift</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Tolerance</span>
+                <input id="optimizerTolerance" type="text" inputmode="decimal" autocomplete="off" value="2" aria-label="Target tolerance percent">
+                <em>%</em>
+              </label>
+              <label class="field">
+                <span>Max tax</span>
+                <input id="optimizerMaxTax" type="text" inputmode="decimal" autocomplete="off" placeholder="No cap" aria-label="Maximum tax due">
+                <em><span class="currencyUnit">EUR</span></em>
+              </label>
+              <label class="field">
+                <span>Max turnover</span>
+                <input id="optimizerMaxTurnover" type="text" inputmode="decimal" autocomplete="off" placeholder="No cap" aria-label="Maximum turnover value">
+                <em><span class="currencyUnit">EUR</span></em>
+              </label>
+              <label class="field">
+                <span>Min trade</span>
+                <input id="optimizerMinTrade" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Minimum trade value">
+                <em><span class="currencyUnit">EUR</span></em>
+              </label>
+              <label class="switch-row switch-row--compact">
+                <span><strong>Allow buys</strong><small>Use cash raised for underweight positions</small></span>
+                <input id="optimizerAllowBuys" type="checkbox" checked>
+              </label>
+              <label class="switch-row switch-row--compact">
+                <span><strong>Partial lots</strong><small>Allow fractional FIFO lot sales</small></span>
+                <input id="optimizerAllowPartialLots" type="checkbox" checked>
+              </label>
+            </div>
+            <div class="workspace-actions workspace-actions--flush">
+              <button id="runOptimizerBtn" type="button" class="primary-button primary-button--small">Run optimizer</button>
+            </div>
+            <div id="optimizerResult" class="optimizer-result" aria-live="polite"></div>
+          </div>
+
+          <div id="scenariosWorkspacePanel" class="workspace-tab-panel" role="tabpanel" aria-labelledby="scenariosWorkspaceTab" hidden>
+            <div class="field-grid field-grid--two">
+              <label class="field">
+                <span>Scenario name</span>
+                <input id="scenarioName" type="text" autocomplete="off" placeholder="Scenario">
+              </label>
+              <label class="field">
+                <span>Active scenario</span>
+                <select id="scenarioSelect" aria-label="Active scenario"></select>
+              </label>
+            </div>
+            <div class="workspace-actions workspace-actions--flush">
+              <button id="saveScenarioBtn" type="button" class="ghost-button ghost-button--tight">Save scenario</button>
+              <button id="duplicateScenarioBtn" type="button" class="ghost-button ghost-button--tight">Duplicate</button>
+              <button id="deleteScenarioBtn" type="button" class="ghost-button ghost-button--tight ghost-button--danger">Delete</button>
+            </div>
+            <div id="scenarioComparison" class="scenario-comparison" aria-live="polite"></div>
+          </div>
+
+          <div class="broker-import">
+            <label class="file-drop">
+              <span>Broker import</span>
+              <input id="brokerImportFile" type="file" accept=".csv,.pdf,text/csv,application/pdf">
+            </label>
+            <div id="importPreview" class="import-preview" hidden></div>
+            <div class="workspace-actions">
+              <button id="commitImportBtn" type="button" class="ghost-button ghost-button--tight" disabled>Use FIFO lots</button>
+              <button id="clearImportBtn" type="button" class="ghost-button ghost-button--tight">Clear import</button>
+            </div>
+          </div>
+        </details>
       </section>
 
       <!-- ── 05 Decision output ────────────────────────────────── -->
@@ -392,11 +636,11 @@
         </div>
 
         <div class="mode-tabs" role="tablist" aria-label="Result mode">
-          <button type="button" class="mode-tab is-active" data-mode="same" role="tab" aria-selected="true">Sell & rebuy</button>
-          <button type="button" class="mode-tab" data-mode="switch" role="tab" aria-selected="false">Switch stock</button>
+          <button id="sameTab" type="button" class="mode-tab is-active" data-mode="same" role="tab" aria-selected="true" aria-controls="sameResult">Sell & rebuy</button>
+          <button id="switchTab" type="button" class="mode-tab" data-mode="switch" role="tab" aria-selected="false" aria-controls="switchResult">Switch stock</button>
         </div>
 
-        <article id="sameResult" class="result-card result-card--same" data-result-mode="same">
+        <article id="sameResult" class="result-card result-card--same" data-result-mode="same" role="tabpanel" aria-labelledby="sameTab" tabindex="0">
           <div class="card-kicker">
             <span>Same stock</span>
             <strong id="sameVerdict">—</strong>
@@ -416,7 +660,7 @@
           <div class="mini-grid">
             <div class="mini-stat">
               <span>Required drop</span>
-              <strong id="requiredDrop">—</strong>
+              <strong id="requiredDrop" class="metric-pair"><span id="requiredDropAmount">—</span><span id="requiredDropPct">—</span></strong>
             </div>
             <div class="mini-stat">
               <span>Tax due</span>
@@ -452,6 +696,31 @@
             </div>
           </div>
 
+          <div id="taxBreakdownPanel" class="tax-breakdown-panel" hidden>
+            <div class="tax-breakdown-panel__header">
+              <span>Detailed tax breakdown</span>
+              <strong id="taxBreakdownMode">—</strong>
+            </div>
+            <div class="tax-breakdown-grid">
+              <div><span>Income tax</span><strong id="taxIncomeTax">—</strong></div>
+              <div><span>Solidarity</span><strong id="taxSolidarity">—</strong></div>
+              <div><span>Church tax</span><strong id="taxChurch">—</strong></div>
+              <div><span>Allowance used</span><strong id="taxAllowanceUsed">—</strong></div>
+              <div><span>Loss offset</span><strong id="taxLossOffset">—</strong></div>
+              <div><span>ETF exemption</span><strong id="taxExemption">—</strong></div>
+              <div><span>Foreign credit</span><strong id="taxForeignCredit">—</strong></div>
+              <div><span>Remaining allowance</span><strong id="taxRemainingAllowance">—</strong></div>
+            </div>
+          </div>
+
+          <div id="fifoPanel" class="fifo-panel" hidden>
+            <div class="fifo-panel__header">
+              <span>FIFO lots consumed</span>
+              <strong id="fifoSummary">—</strong>
+            </div>
+            <div id="fifoRows" class="fifo-rows"></div>
+          </div>
+
           <div id="rebuySection" class="rebuy-strip" hidden>
             <div>
               <span>At chosen rebuy price</span>
@@ -478,7 +747,7 @@
           </div>
         </article>
 
-        <article id="switchResult" class="result-card is-hidden" data-result-mode="switch">
+        <article id="switchResult" class="result-card is-hidden" data-result-mode="switch" role="tabpanel" aria-labelledby="switchTab" tabindex="0" aria-hidden="true">
           <div class="card-kicker">
             <span>Different stock</span>
             <strong id="switchVerdict">—</strong>
@@ -534,8 +803,25 @@
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.5V10.5M8 10.5L4.5 7M8 10.5L11.5 7M1.5 12.5V13.5C1.5 14.05 1.95 14.5 2.5 14.5H13.5C14.05 14.5 14.5 14.05 14.5 13.5V12.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             Export
           </button>
+          <button id="exportJsonBtn" type="button" class="ghost-button ghost-button--tight" aria-label="Export JSON audit report">JSON</button>
+          <button id="exportHtmlBtn" type="button" class="ghost-button ghost-button--tight" aria-label="Open printable audit report">HTML</button>
+        </div>
+
+        <div class="local-alert-panel" aria-label="Local alerts">
+          <div class="local-alert-panel__controls">
+            <select id="alertType" aria-label="Alert type">
+              <option value="tax-due-above">Tax due above</option>
+              <option value="tax-drag-above">Tax drag above</option>
+              <option value="rebuy-break-even-reached">Rebuy break-even reached</option>
+              <option value="switch-hurdle-reached">Switch hurdle reached</option>
+            </select>
+            <input id="alertThreshold" type="text" inputmode="decimal" autocomplete="off" placeholder="Threshold" aria-label="Alert threshold">
+            <button id="addAlertBtn" type="button" class="ghost-button ghost-button--tight">Add alert</button>
+          </div>
+          <div id="alertList" class="local-alert-list" aria-live="polite"></div>
         </div>
       </section>
+      </div><!-- /.main-grid -->
 
       <section class="info-card" aria-label="Tax assumption and disclaimer">
         <details>
@@ -568,6 +854,10 @@
   </noscript>
 
   <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+  <script src="symbol-catalog.js" defer></script>
+  <script src="tax-germany.js" defer></script>
+  <script src="app-ledger.js" defer></script>
+  <script src="app-workspace.js" defer></script>
   <script src="app-core.js" defer></script>
   <script src="app-ui.js" defer></script>
   <script src="app.js" defer></script>

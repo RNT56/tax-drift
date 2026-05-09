@@ -1,3 +1,5 @@
+const { getConfiguredProviders } = require('../lib/market-data-providers');
+
 const json = (statusCode, payload, cacheSeconds = 0) => ({
   statusCode,
   headers: {
@@ -10,16 +12,32 @@ const json = (statusCode, payload, cacheSeconds = 0) => ({
 });
 
 exports.handler = async () => {
-  const hasKey = Boolean(process.env.TWELVE_DATA_API_KEY);
+  const configuredProviders = getConfiguredProviders();
+  const hasLiveProvider = configuredProviders.length > 0;
+  const env = process.env || {};
+  const hasEncryption = !!env.DATA_ENCRYPTION_KEY;
+  let blobStore = 'memory-fallback';
+  try {
+    require('@netlify/blobs');
+    blobStore = 'netlify-blobs';
+  } catch {
+    blobStore = 'unavailable';
+  }
 
   return json(200, {
-    hasLiveProvider: hasKey,
-    provider: hasKey ? 'Twelve Data' : null,
-    mode: hasKey ? 'live' : 'manual',
+    hasLiveProvider,
+    provider: hasLiveProvider ? 'Market data' : null,
+    activeProviderCount: configuredProviders.length,
+    mode: hasLiveProvider ? 'live' : 'manual',
     features: {
-      symbolSearch: hasKey ? 'live' : 'fallback',
-      latestPrice: hasKey ? 'available' : 'unavailable',
-      globalCoverage: hasKey ? 'broad' : 'limited'
+      symbolSearch: hasLiveProvider ? 'multi-provider' : 'fallback',
+      latestPrice: hasLiveProvider ? 'available' : 'unavailable',
+      globalCoverage: hasLiveProvider ? 'broad' : 'limited',
+      identity: 'configured-by-deployment',
+      blobStore,
+      encryption: hasEncryption ? 'configured' : 'missing',
+      resend: env.RESEND_API_KEY ? 'configured' : 'missing',
+      scheduledAlerts: 'hourly'
     }
   }, 300);
 };

@@ -1,4 +1,5 @@
-const { normalizeSymbol, searchFallback } = require('../lib/fallback-symbols');
+const { searchFallback } = require('../lib/fallback-symbols');
+const { mergeResults, searchLiveProviders } = require('../lib/market-data-providers');
 
 /* ── In-memory LRU cache ───────────────────────────────────────────── */
 const CACHE_MAX = 200;
@@ -39,33 +40,56 @@ const json = (statusCode, payload, cacheSeconds = 0) => ({
   body: JSON.stringify(payload)
 });
 
-function normalizeTwelveDataPayload(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.data)) return payload.data;
-  if (Array.isArray(payload?.values)) return payload.values;
-  return [];
+function publicSymbolResult(item) {
+  return {
+    id: item.id,
+    symbol: item.symbol,
+    name: item.name,
+    exchange: item.exchange,
+    micCode: item.micCode || item.mic_code || '',
+    country: item.country,
+    currency: item.currency,
+    type: item.type
+  };
+}
+
+function assetMatchesFilter(item, typeFilter, countryFilter) {
+  const type = String(item.type || '').toLowerCase();
+  const country = String(item.country || '').toLowerCase();
+  const exchange = String(item.exchange || '').toLowerCase();
+  const requestedType = String(typeFilter || 'all').toLowerCase();
+  const requestedCountry = String(countryFilter || 'all').toLowerCase();
+
+  const typeOk = requestedType === 'all'
+    || (requestedType === 'stock' && (type.includes('stock') || type.includes('adr') || type.includes('reit')))
+    || (requestedType === 'etf' && type.includes('etf'))
+    || (requestedType === 'index' && type.includes('index'))
+    || (requestedType === 'fx' && (type.includes('forex') || type.includes('physical currency')))
+    || (requestedType === 'crypto' && (type.includes('crypto') || type.includes('digital currency')));
+
+  const countryOk = requestedCountry === 'all'
+    || country === requestedCountry
+    || exchange.includes(requestedCountry);
+
+  return typeOk && countryOk;
 }
 
 /* ── Handler ───────────────────────────────────────────────────────── */
 exports.handler = async (event) => {
   const query = String(event.queryStringParameters?.q || '').trim();
   const limit = Math.min(Math.max(Number(event.queryStringParameters?.limit || 10), 1), 20);
+  const typeFilter = String(event.queryStringParameters?.type || 'all').trim();
+  const countryFilter = String(event.queryStringParameters?.country || 'all').trim();
 
   if (query.length < 2) {
-    return json(200, { results: [], source: 'none', hasLiveProvider: Boolean(process.env.TWELVE_DATA_API_KEY) }, 60);
-  }
-
-  const apiKey = process.env.TWELVE_DATA_API_KEY;
-  const cacheKey = `search:${query.toLowerCase()}:${limit}`;
-
-  if (!apiKey) {
     return json(200, {
-      results: searchFallback(query, limit),
-      source: 'fallback',
-      hasLiveProvider: false,
-      message: 'Set TWELVE_DATA_API_KEY in Netlify to enable live symbol search.'
-    }, 300);
+      results: [],
+      source: 'none',
+      hasLiveProvider: Boolean(process.env.TWELVE_DATA_API_KEY || process.env.FMP_API_KEY || process.env.EODHD_API_KEY || process.env.ALPHA_VANTAGE_API_KEY)
+    }, 60);
   }
+
+  const cacheKey = `search:${query.toLowerCase()}:${typeFilter.toLowerCase()}:${countryFilter.toLowerCase()}:${limit}`;
 
   // Check server-side cache first
   const cached = cacheGet(cacheKey);
@@ -74,47 +98,33 @@ exports.handler = async (event) => {
   }
 
   try {
-    const url = new URL('https://api.twelvedata.com/symbol_search');
-    url.searchParams.set('symbol', query);
-    url.searchParams.set('outputsize', String(limit));
-
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `apikey ${apiKey}`
-      }
-    });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok || payload.status === 'error') {
-      const fallbackResult = {
-        results: searchFallback(query, limit),
-        source: 'fallback',
-        hasLiveProvider: true,
-        providerError: payload.message || `Twelve Data returned ${response.status}`
-      };
-      return json(200, fallbackResult, 180);
-    }
-
-    const normalized = normalizeTwelveDataPayload(payload)
-      .map((item) => normalizeSymbol(item, 'twelvedata'))
-      .filter((item) => item.symbol)
-      .slice(0, limit);
+    const resultLimit = Math.min(limit * 3, 60);
+    const fallbackResults = searchFallback(query, resultLimit);
+    const live = await searchLiveProviders(query, resultLimit);
+    const hasLiveProvider = live.configured.length > 0;
+    const mergedResults = mergeResults([fallbackResults, live.results], resultLimit)
+      .filter(item => assetMatchesFilter(item, typeFilter, countryFilter))
+      .slice(0, limit)
+      .map(publicSymbolResult);
+    const liveSources = live.attempts.filter(attempt => attempt.ok && attempt.results.length).map(attempt => attempt.provider);
 
     const result = {
-      results: normalized.length ? normalized : searchFallback(query, limit),
-      source: normalized.length ? 'twelvedata' : 'fallback',
-      hasLiveProvider: true
+      results: mergedResults,
+      source: liveSources.length && fallbackResults.length ? 'live+fallback' : liveSources.length ? 'live' : 'fallback',
+      hasLiveProvider,
+      checkedLiveProviders: live.configured.length
     };
 
-    // Cache successful live results
     cacheSet(cacheKey, result);
-    return json(200, result, 600);
+    return json(200, result, hasLiveProvider ? 600 : 300);
   } catch (error) {
     return json(200, {
-      results: searchFallback(query, limit),
+      results: searchFallback(query, Math.min(limit * 3, 60))
+        .filter(item => assetMatchesFilter(item, typeFilter, countryFilter))
+        .slice(0, limit)
+        .map(publicSymbolResult),
       source: 'fallback',
-      hasLiveProvider: true,
-      providerError: error.message
+      hasLiveProvider: Boolean(process.env.TWELVE_DATA_API_KEY || process.env.FMP_API_KEY || process.env.EODHD_API_KEY || process.env.ALPHA_VANTAGE_API_KEY)
     }, 180);
   }
 };

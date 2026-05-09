@@ -1,12 +1,20 @@
-const CACHE_VERSION = 'taxswitch-v2';
+const CACHE_VERSION = 'taxswitch-v5';
 const SHELL_ASSETS = [
   '/',
   '/index.html',
+  '/symbol-catalog.js',
+  '/tax-germany.js',
+  '/app-ledger.js',
+  '/app-workspace.js',
   '/app-core.js',
   '/app-ui.js',
   '/app.js',
   '/styles.css',
-  '/site.webmanifest'
+  '/site.webmanifest',
+  '/apple-touch-icon.png',
+  '/icon-192.png',
+  '/icon-512.png',
+  '/icon-maskable-512.png'
 ];
 
 self.addEventListener('install', (event) => {
@@ -26,6 +34,8 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
   const url = new URL(event.request.url);
 
   // Network-first for API calls
@@ -33,11 +43,32 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(event.request)
         .then(response => {
-          const clone = response.clone();
-          caches.open(CACHE_VERSION).then(cache => cache.put(event.request, clone));
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_VERSION).then(cache => cache.put(event.request, clone));
+          }
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => caches.match(event.request).then(cached => cached || new Response(
+          JSON.stringify({ error: 'offline', message: 'Market data is unavailable offline.' }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } }
+        )))
+    );
+    return;
+  }
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          if (response.ok) {
+            const clone = response.clone();
+            caches.open(CACHE_VERSION).then(cache => cache.put('/index.html', clone));
+            return response;
+          }
+          return caches.match('/index.html').then(cached => cached || response);
+        })
+        .catch(() => caches.match('/index.html'))
     );
     return;
   }

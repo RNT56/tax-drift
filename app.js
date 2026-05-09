@@ -1,5 +1,7 @@
 const els = {
   instrumentSearch: document.getElementById('instrumentSearch'),
+  assetTypeFilter: document.getElementById('assetTypeFilter'),
+  assetCountryFilter: document.getElementById('assetCountryFilter'),
   clearInstrumentSearch: document.getElementById('clearInstrumentSearch'),
   instrumentResults: document.getElementById('instrumentResults'),
   selectedInstrument: document.getElementById('selectedInstrument'),
@@ -7,6 +9,8 @@ const els = {
   selectedName: document.getElementById('selectedName'),
   selectedMeta: document.getElementById('selectedMeta'),
   useLatestPriceBtn: document.getElementById('useLatestPriceBtn'),
+  refreshPriceBtn: document.getElementById('refreshPriceBtn'),
+  manualPriceBtn: document.getElementById('manualPriceBtn'),
   clearInstrumentBtn: document.getElementById('clearInstrumentBtn'),
   marketDataStatus: document.getElementById('marketDataStatus'),
   shares: document.getElementById('shares'),
@@ -28,15 +32,33 @@ const els = {
   heroBreakEven: document.getElementById('heroBreakEven'),
   heroDrop: document.getElementById('heroDrop'),
   heroRequiredNew: document.getElementById('heroRequiredNew'),
+  pageHero: document.querySelector('.hero'),
+  resultsPanel: document.querySelector('.results-panel'),
+  stickySummary: document.querySelector('.sticky-summary'),
   stickyBreakEven: document.getElementById('stickyBreakEven'),
   stickyRequiredNew: document.getElementById('stickyRequiredNew'),
   sameVerdict: document.getElementById('sameVerdict'),
   breakEvenPrice: document.getElementById('breakEvenPrice'),
   sameExplanation: document.getElementById('sameExplanation'),
   requiredDrop: document.getElementById('requiredDrop'),
+  requiredDropAmount: document.getElementById('requiredDropAmount'),
+  requiredDropPct: document.getElementById('requiredDropPct'),
   taxDue: document.getElementById('taxDue'),
   cashAfter: document.getElementById('cashAfter'),
   taxableGain: document.getElementById('taxableGain'),
+  taxBreakdownPanel: document.getElementById('taxBreakdownPanel'),
+  taxBreakdownMode: document.getElementById('taxBreakdownMode'),
+  taxIncomeTax: document.getElementById('taxIncomeTax'),
+  taxSolidarity: document.getElementById('taxSolidarity'),
+  taxChurch: document.getElementById('taxChurch'),
+  taxAllowanceUsed: document.getElementById('taxAllowanceUsed'),
+  taxLossOffset: document.getElementById('taxLossOffset'),
+  taxExemption: document.getElementById('taxExemption'),
+  taxForeignCredit: document.getElementById('taxForeignCredit'),
+  taxRemainingAllowance: document.getElementById('taxRemainingAllowance'),
+  fifoPanel: document.getElementById('fifoPanel'),
+  fifoSummary: document.getElementById('fifoSummary'),
+  fifoRows: document.getElementById('fifoRows'),
   rebuySection: document.getElementById('rebuySection'),
   newShareCount: document.getElementById('newShareCount'),
   shareDifference: document.getElementById('shareDifference'),
@@ -52,13 +74,14 @@ const els = {
   chart: document.getElementById('returnChart')
 };
 
-/* FALLBACK_SYMBOLS now in app-core.js */
+/* Local symbol fallback search is provided by symbol-catalog.js through app-core.js */
 
 let activeMode = 'same';
 let lastSignature = '';
 let selectedInstrument = null;
 let searchTimer = null;
 let searchAbort = null;
+let applyingMarketPrice = false;
 
 /* parseLocaleNumber, normalizeCurrencyCode, formatCurrency, formatInputNumber,
    formatPercent, formatShares, clampTaxRate, clampReturn now in app-core.js */
@@ -86,13 +109,16 @@ function getInputs() {
   const expectedNewReturnParsed = parseLocaleNumber(els.expectedNewReturn.value);
   const expectedNewReturn = Number.isFinite(expectedNewReturnParsed) ? clampReturn(expectedNewReturnParsed / 100) : NaN;
   const currencyCode = normalizeCurrencyCode(els.currencyCode.value);
+  const positionCurrency = normalizeCurrencyCode(ui?.positionCurrency?.value || currencyCode);
+  const taxCurrency = normalizeCurrencyCode(ui?.taxCurrency?.value || currencyCode);
   const sf = typeof getSellFraction === 'function' ? getSellFraction() : 1;
   const fxRateBuyVal = ui ? parseLocaleNumber(ui.fxRateBuy?.value) : NaN;
   const fxRateNowVal = ui ? parseLocaleNumber(ui.fxRateNow?.value) : NaN;
   const pvVal = ui ? parseLocaleNumber(ui.portfolioValue?.value) : NaN;
   const twVal = ui ? parseLocaleNumber(ui.targetWeight?.value) : NaN;
+  const taxProfile = typeof getDetailedTaxProfile === 'function' ? getDetailedTaxProfile() : { mode: 'flat' };
 
-  return {
+  const input = {
     shares: Number.isFinite(shares) ? Math.max(shares, 0) : NaN,
     buyPrice: Number.isFinite(buyPrice) ? Math.max(buyPrice, 0) : NaN,
     currentPrice: Number.isFinite(currentPrice) ? Math.max(currentPrice, 0) : NaN,
@@ -103,13 +129,22 @@ function getInputs() {
     expectedNewReturn,
     includeTaxOnNew: els.includeTaxOnNew.checked,
     currencyCode,
+    instrumentCurrency: positionCurrency,
+    positionCurrency,
+    taxCurrency,
     sellFraction: sf,
     fxMode: typeof fxMode !== 'undefined' ? fxMode : 'same',
+    hurdleMode: typeof getHurdleMode === 'function' ? getHurdleMode() : 'beat-pretax',
+    taxProfile,
     fxRateBuy: fxRateBuyVal,
     fxRateNow: fxRateNowVal,
     portfolioValue: pvVal,
     targetWeight: twVal
   };
+  if (typeof getActiveLotSaleResult === 'function') {
+    input.lotSaleResult = getActiveLotSaleResult(input);
+  }
+  return input;
 }
 
 /* hasCoreInputs, afterTaxFutureValue, requiredGrossReturn,
@@ -156,7 +191,8 @@ function showEmptyState() {
   els.sameVerdict.textContent = 'Waiting';
   els.sameExplanation.textContent = 'Enter shares, buy price and current price to calculate the tax hurdle.';
   setText(els.breakEvenPrice, '—');
-  setText(els.requiredDrop, '—');
+  setText(els.requiredDropAmount, '—');
+  setText(els.requiredDropPct, '—');
   setText(els.taxDue, '—');
   setText(els.cashAfter, '—');
   setText(els.taxableGain, '—');
@@ -175,7 +211,55 @@ function showEmptyState() {
   setText(els.fvDifference, '—');
   els.futureComparison.hidden = true;
   els.fvDifference.classList.remove('is-positive', 'is-negative');
+  if (els.taxBreakdownPanel) els.taxBreakdownPanel.hidden = true;
+  if (els.fifoPanel) els.fifoPanel.hidden = true;
   clearChart();
+}
+
+function renderTaxBreakdown(input, output) {
+  if (!els.taxBreakdownPanel) return;
+  const breakdown = output.taxBreakdown;
+  if (!breakdown || input.taxProfile?.mode !== 'de') {
+    els.taxBreakdownPanel.hidden = true;
+    return;
+  }
+  const money = (value) => formatCurrency(value, input.taxCurrency || input.currencyCode);
+  els.taxBreakdownPanel.hidden = false;
+  setText(els.taxBreakdownMode, 'German detailed');
+  setText(els.taxIncomeTax, money(breakdown.incomeTax));
+  setText(els.taxSolidarity, money(breakdown.solidaritySurcharge));
+  setText(els.taxChurch, money(breakdown.churchTax));
+  setText(els.taxAllowanceUsed, money(breakdown.allowanceUsed));
+  setText(els.taxLossOffset, money(breakdown.lossOffsetUsed));
+  setText(els.taxExemption, money(breakdown.exemptAmount));
+  setText(els.taxForeignCredit, money(breakdown.foreignTaxCreditUsed));
+  setText(els.taxRemainingAllowance, money(breakdown.remainingAllowance));
+}
+
+function renderFifoBreakdown(input, output) {
+  if (!els.fifoPanel || !els.fifoRows) return;
+  const matches = output.lotSaleResult?.matches || [];
+  const errors = output.lotSaleResult?.errors || [];
+  if (!matches.length && !errors.length) {
+    els.fifoPanel.hidden = true;
+    els.fifoRows.innerHTML = '';
+    return;
+  }
+  els.fifoPanel.hidden = false;
+  setText(els.fifoSummary, errors.length ? errors[0] : `${formatShares(output.lotSaleResult.soldQuantity)} shares`);
+  els.fifoRows.innerHTML = '';
+  matches.slice(0, 8).forEach((match) => {
+    const row = document.createElement('div');
+    row.className = 'fifo-row';
+    const date = document.createElement('span');
+    const qty = document.createElement('strong');
+    const gain = document.createElement('small');
+    date.textContent = match.acquiredAt || 'No date';
+    qty.textContent = formatShares(match.quantity);
+    gain.textContent = formatCurrency(match.gain, input.taxCurrency || input.currencyCode);
+    row.append(date, qty, gain);
+    els.fifoRows.appendChild(row);
+  });
 }
 
 function updateResults(input, output) {
@@ -195,10 +279,13 @@ function updateResults(input, output) {
   setText(els.heroDrop, `${formatPercent(output.requiredDropPct)} drop needed`);
 
   setText(els.breakEvenPrice, breakEvenText);
-  setText(els.requiredDrop, `${money(output.requiredDrop)} · ${formatPercent(output.requiredDropPct)}`);
+  setText(els.requiredDropAmount, money(output.requiredDrop));
+  setText(els.requiredDropPct, formatPercent(output.requiredDropPct));
   setText(els.taxDue, money(output.taxDue));
   setText(els.cashAfter, money(output.cashAfter));
   setText(els.taxableGain, money(output.taxableGain));
+  renderTaxBreakdown(input, output);
+  renderFifoBreakdown(input, output);
 
   if (Number.isFinite(input.rebuyPrice) && input.rebuyPrice > 0) {
     const newShares = output.cashAfter / input.rebuyPrice;
@@ -268,11 +355,19 @@ function drawChart(input, output) {
   const chartH = height - pad.top - pad.bottom;
 
   const oldReturns = [-0.2, -0.1, 0, 0.1, 0.2];
-  const required = oldReturns.map((oldReturn) => requiredGrossReturn(
-    output.cashRatio,
-    oldReturn,
-    input.taxRate,
-    input.includeTaxOnNew
+  const required = oldReturns.map((oldReturn) => (
+    typeof requiredReturnForMode === 'function'
+      ? requiredReturnForMode({
+        cashAfter: output.cashAfter,
+        sellValue: output.sellValue,
+        cashRatio: output.cashRatio,
+        oldReturn,
+        taxRate: input.taxRate,
+        includeTaxOnNew: input.includeTaxOnNew,
+        hurdleMode: input.hurdleMode,
+        taxProfile: input.taxProfile
+      })
+      : requiredGrossReturn(output.cashRatio, oldReturn, input.taxRate, input.includeTaxOnNew)
   ));
 
   const values = [...oldReturns, ...required].filter(Number.isFinite);
@@ -363,6 +458,7 @@ function calculate() {
   if (typeof updateTaxDrag === 'function') updateTaxDrag(input, output);
   if (typeof updatePartialSell === 'function') updatePartialSell(input, output);
   if (typeof updatePortfolio === 'function') updatePortfolio(input, output);
+  if (typeof updateLocalAlerts === 'function') updateLocalAlerts(input, output);
   if (typeof saveToLocalStorage === 'function') saveToLocalStorage();
 }
 
@@ -375,7 +471,31 @@ function setMode(mode) {
   });
   els.sameResult.classList.toggle('is-hidden', mode !== 'same');
   els.switchResult.classList.toggle('is-hidden', mode !== 'switch');
+  els.sameResult.setAttribute('aria-hidden', String(mode !== 'same'));
+  els.switchResult.setAttribute('aria-hidden', String(mode !== 'switch'));
   requestAnimationFrame(calculate);
+}
+
+function updateDockVisibility() {
+  if (!els.stickySummary) return;
+  if (window.matchMedia('(min-width: 740px)').matches) {
+    els.stickySummary.classList.remove('is-docked-hidden');
+    return;
+  }
+
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const heroRect = els.pageHero?.getBoundingClientRect();
+  const resultsRect = els.resultsPanel?.getBoundingClientRect();
+  const headerSummaryVisible = heroRect ? heroRect.bottom > 16 : false;
+  const resultsVisible = resultsRect
+    ? resultsRect.top < viewportHeight - 90 && resultsRect.bottom > 90
+    : false;
+
+  els.stickySummary.classList.toggle('is-docked-hidden', headerSummaryVisible || resultsVisible);
+}
+
+function queueDockVisibility() {
+  requestAnimationFrame(updateDockVisibility);
 }
 
 /* localSearchSymbols now in app-core.js */
@@ -392,7 +512,39 @@ function instrumentInitials(item) {
 }
 
 function instrumentSubtitle(item) {
-  return [item.symbol, item.exchange, item.currency, item.type].filter(Boolean).join(' · ');
+  return [item.symbol, item.exchange, item.country, item.currency, item.type].filter(Boolean).join(' · ');
+}
+
+function getAssetFilters() {
+  return {
+    type: els.assetTypeFilter?.value || 'all',
+    country: els.assetCountryFilter?.value || 'all'
+  };
+}
+
+function assetMatchesFilter(item, filters = getAssetFilters()) {
+  const type = String(item?.type || '').toLowerCase();
+  const country = String(item?.country || '').toLowerCase();
+  const exchange = String(item?.exchange || '').toLowerCase();
+  const requestedType = String(filters.type || 'all').toLowerCase();
+  const requestedCountry = String(filters.country || 'all').toLowerCase();
+  const typeOk = requestedType === 'all'
+    || (requestedType === 'stock' && (type.includes('stock') || type.includes('adr') || type.includes('reit')))
+    || (requestedType === 'etf' && type.includes('etf'))
+    || (requestedType === 'index' && type.includes('index'))
+    || (requestedType === 'fx' && (type.includes('forex') || type.includes('physical currency')))
+    || (requestedType === 'crypto' && (type.includes('crypto') || type.includes('digital currency')));
+  const countryOk = requestedCountry === 'all'
+    || country === requestedCountry
+    || exchange.includes(requestedCountry);
+  return typeOk && countryOk;
+}
+
+function filteredLocalSearchSymbols(query, limit = 10) {
+  const filters = getAssetFilters();
+  return localSearchSymbols(query, Math.min(limit * 3, 60))
+    .filter(item => assetMatchesFilter(item, filters))
+    .slice(0, limit);
 }
 
 function renderInstrumentResults(results, sourceLabel = '') {
@@ -449,6 +601,29 @@ function renderInstrumentLoading(text) {
   els.instrumentResults.hidden = false;
 }
 
+function instrumentResultKey(item) {
+  const symbol = String(item?.symbol || '').trim().toUpperCase();
+  const exchange = String(item?.exchange || item?.micCode || item?.mic_code || '').trim().toUpperCase();
+  const currency = String(item?.currency || '').trim().toUpperCase();
+  return [symbol, exchange, currency].join('|');
+}
+
+function mergeInstrumentResults(primary = [], secondary = [], limit = 10) {
+  const seen = new Set();
+  const merged = [];
+  const add = (item) => {
+    if (!item?.symbol) return;
+    const key = instrumentResultKey(item);
+    if (seen.has(key)) return;
+    seen.add(key);
+    merged.push(item);
+  };
+
+  primary.forEach(add);
+  secondary.forEach(add);
+  return merged.slice(0, limit);
+}
+
 async function searchSymbols(query) {
   const q = String(query || '').trim();
   if (q.length < 2) {
@@ -459,20 +634,27 @@ async function searchSymbols(query) {
   if (searchAbort) searchAbort.abort();
   searchAbort = new AbortController();
   renderInstrumentLoading('Searching');
+  const filters = getAssetFilters();
+  const params = new URLSearchParams({
+    q,
+    type: filters.type,
+    country: filters.country
+  });
 
   try {
-    const response = await fetch(`/.netlify/functions/search-symbols?q=${encodeURIComponent(q)}`, {
+    const response = await fetch(`/.netlify/functions/search-symbols?${params.toString()}`, {
       signal: searchAbort.signal
     });
 
     if (!response.ok) throw new Error(`Search failed with ${response.status}`);
     const payload = await response.json();
     const apiResults = Array.isArray(payload.results) ? payload.results : [];
-    const results = apiResults.length ? apiResults : localSearchSymbols(q);
+    const fallbackResults = filteredLocalSearchSymbols(q);
+    const results = apiResults.length ? mergeInstrumentResults(fallbackResults, apiResults) : fallbackResults;
     renderInstrumentResults(results, payload.source || 'search');
   } catch (error) {
     if (error.name === 'AbortError') return;
-    renderInstrumentResults(localSearchSymbols(q), 'local');
+    renderInstrumentResults(filteredLocalSearchSymbols(q), 'local');
   }
 }
 
@@ -489,8 +671,8 @@ function selectInstrument(item) {
   els.selectedAvatar.textContent = instrumentInitials(item);
   els.selectedName.textContent = item.name || item.symbol || 'Selected instrument';
   els.selectedMeta.textContent = instrumentSubtitle(item);
-  if (item.currency) setCurrency(item.currency);
-  setMarketStatus('Selected instrument metadata only. Use latest price or enter your current price manually.');
+  if (els.refreshPriceBtn) els.refreshPriceBtn.hidden = true;
+  setMarketStatus('Selected instrument. Fetch a converted latest price or enter your price manually.');
   calculate();
 }
 
@@ -498,6 +680,7 @@ function clearSelectedInstrument({ clearSearch = true } = {}) {
   selectedInstrument = null;
   els.selectedInstrument.hidden = true;
   els.instrumentResults.hidden = true;
+  if (els.refreshPriceBtn) els.refreshPriceBtn.hidden = true;
   if (clearSearch) els.instrumentSearch.value = '';
   setMarketStatus('Selected instruments are metadata only until you fill or fetch a current price.');
 }
@@ -505,15 +688,24 @@ function clearSelectedInstrument({ clearSearch = true } = {}) {
 async function useLatestPrice() {
   if (!selectedInstrument?.symbol) return;
 
+  const targetCurrency = normalizeCurrencyCode(els.currencyCode.value);
+  const sourceCurrency = normalizeCurrencyCode(selectedInstrument.currency || targetCurrency);
   const params = new URLSearchParams({
     symbol: selectedInstrument.symbol,
     exchange: selectedInstrument.exchange || '',
     mic_code: selectedInstrument.micCode || selectedInstrument.mic_code || '',
-    currency: selectedInstrument.currency || normalizeCurrencyCode(els.currencyCode.value),
-    type: selectedInstrument.type || ''
+    currency: targetCurrency,
+    sourceCurrency,
+    type: selectedInstrument.type || '',
+    providerSymbol: selectedInstrument.providerSymbol || '',
+    twelvedataSymbol: selectedInstrument.twelvedataSymbol || '',
+    fmpSymbol: selectedInstrument.fmpSymbol || '',
+    eodhdSymbol: selectedInstrument.eodhdSymbol || '',
+    alphavantageSymbol: selectedInstrument.alphavantageSymbol || ''
   });
 
   els.useLatestPriceBtn.disabled = true;
+  if (els.refreshPriceBtn) els.refreshPriceBtn.disabled = true;
   setMarketStatus('Fetching latest price…');
 
   try {
@@ -527,26 +719,60 @@ async function useLatestPrice() {
     }
 
     const price = Number(payload.price);
-    const returnedCurrency = normalizeCurrencyCode(payload.currency || selectedInstrument.currency || els.currencyCode.value);
-    // Show price confirmation dialog
+    const returnedCurrency = normalizeCurrencyCode(payload.currency || targetCurrency);
+    const converted = Boolean(payload.converted);
+    const convertedText = converted && Number.isFinite(Number(payload.originalPrice))
+      ? `Converted from ${formatCurrency(Number(payload.originalPrice), payload.originalCurrency || sourceCurrency)} at ${formatInputNumber(Number(payload.fxRate))}`
+      : `Ready to apply in ${returnedCurrency}`;
+
     if (ui && ui.priceConfirmation) {
-      pendingPrice = { price, currency: returnedCurrency, source: payload.source || 'market data' };
+      pendingPrice = {
+        price,
+        currency: returnedCurrency,
+        source: 'Market data',
+        converted,
+        originalPrice: Number(payload.originalPrice),
+        originalCurrency: payload.originalCurrency,
+        fxRate: Number(payload.fxRate),
+        fetchedAt: payload.fetchedAt || new Date().toISOString()
+      };
       ui.confirmPrice.textContent = formatCurrency(price, returnedCurrency);
+      if (ui.confirmPriceMeta) ui.confirmPriceMeta.textContent = convertedText;
       ui.priceConfirmation.hidden = false;
-      setMarketStatus(`Price found: ${formatCurrency(price, returnedCurrency)}. Confirm to use it.`, 'success');
+      setMarketStatus(`Latest price ready: ${formatCurrency(price, returnedCurrency)}. Confirm to use it.`, 'success');
     } else {
-      // Fallback: apply directly
+      applyingMarketPrice = true;
       els.currentPrice.value = formatInputNumber(price);
+      applyingMarketPrice = false;
       setCurrency(returnedCurrency);
       selectedInstrument.currency = returnedCurrency;
-      setMarketStatus(`Filled latest ${returnedCurrency} price from ${payload.source || 'market data'}.`, 'success');
+      setMarketStatus(`Filled latest ${returnedCurrency} market price.`, 'success');
       calculate();
     }
   } catch (error) {
     setMarketStatus('Live price unavailable in this environment. Enter the current price manually.', 'warning');
   } finally {
     els.useLatestPriceBtn.disabled = false;
+    if (els.refreshPriceBtn) els.refreshPriceBtn.disabled = false;
   }
+}
+
+function focusManualPriceOverride() {
+  if (ui?.priceConfirmation) {
+    ui.priceConfirmation.hidden = true;
+    pendingPrice = null;
+  }
+  els.currentPrice.focus();
+  els.currentPrice.select();
+  setMarketStatus('Manual override active. Enter the current price in your calculation currency.', 'warning');
+}
+
+function markManualPriceOverride() {
+  if (applyingMarketPrice || !selectedInstrument) return;
+  if (ui?.priceConfirmation) ui.priceConfirmation.hidden = true;
+  if (ui?.priceTimestamp) ui.priceTimestamp.hidden = true;
+  if (els.refreshPriceBtn) els.refreshPriceBtn.hidden = false;
+  setMarketStatus('Manual price override active. Refresh latest price anytime.', 'warning');
 }
 
 function clearInputs() {
@@ -571,9 +797,21 @@ function clearInputs() {
     if (ui.customSellShares) ui.customSellShares.value = '';
     if (ui.fxRateBuy) ui.fxRateBuy.value = '';
     if (ui.fxRateNow) ui.fxRateNow.value = '';
+    if (ui.taxProfileMode) ui.taxProfileMode.value = 'flat';
+    if (ui.filingStatus) ui.filingStatus.value = 'single';
+    if (ui.saverAllowanceRemaining) ui.saverAllowanceRemaining.value = '';
+    if (ui.churchTaxRate) ui.churchTaxRate.value = '0';
+    if (ui.instrumentTaxClass) ui.instrumentTaxClass.value = 'stock';
+    if (ui.stockLossPot) ui.stockLossPot.value = '';
+    if (ui.otherLossPot) ui.otherLossPot.value = '';
+    if (ui.foreignTaxPaid) ui.foreignTaxPaid.value = '';
+    if (ui.foreignTaxCreditable) ui.foreignTaxCreditable.value = '';
+    if (ui.priorTaxedVorabpauschale) ui.priorTaxedVorabpauschale.value = '';
+    if (ui.workspaceName) ui.workspaceName.value = '';
     if (ui.priceConfirmation) ui.priceConfirmation.hidden = true;
     if (ui.priceTimestamp) ui.priceTimestamp.hidden = true;
   }
+  if (typeof clearBrokerImport === 'function') clearBrokerImport();
   try { localStorage.removeItem(LS_KEY); } catch(e) {}
   setCurrency('EUR');
   setMode('same');
@@ -595,6 +833,8 @@ function clearInputs() {
   input.addEventListener('focus', () => input.select());
 });
 
+els.currentPrice.addEventListener('input', markManualPriceOverride);
+
 els.currencyCode.addEventListener('blur', () => {
   setCurrency(els.currencyCode.value);
   calculate();
@@ -608,8 +848,18 @@ els.clearInstrumentSearch.addEventListener('click', () => {
   els.instrumentSearch.value = '';
   els.instrumentResults.hidden = true;
 });
+[
+  els.assetTypeFilter,
+  els.assetCountryFilter
+].filter(Boolean).forEach((filter) => {
+  filter.addEventListener('change', () => {
+    if (els.instrumentSearch.value.trim().length >= 2) queueSymbolSearch();
+  });
+});
 els.clearInstrumentBtn.addEventListener('click', () => clearSelectedInstrument({ clearSearch: true }));
 els.useLatestPriceBtn.addEventListener('click', useLatestPrice);
+if (els.refreshPriceBtn) els.refreshPriceBtn.addEventListener('click', useLatestPrice);
+if (els.manualPriceBtn) els.manualPriceBtn.addEventListener('click', focusManualPriceOverride);
 
 els.includeTaxOnNew.addEventListener('change', calculate);
 els.resetBtn.addEventListener('click', clearInputs);
@@ -625,7 +875,11 @@ els.tabs.forEach((tab) => {
   tab.addEventListener('click', () => setMode(tab.dataset.mode));
 });
 
-window.addEventListener('resize', () => requestAnimationFrame(calculate));
+window.addEventListener('resize', () => {
+  requestAnimationFrame(calculate);
+  queueDockVisibility();
+});
+window.addEventListener('scroll', queueDockVisibility, { passive: true });
 document.addEventListener('click', (event) => {
   if (!event.target.closest('.panel--instrument')) {
     els.instrumentResults.hidden = true;
@@ -642,3 +896,4 @@ if (!urlRestored && typeof restoreFromLocalStorage === 'function') restoreFromLo
 if (typeof wireNewUI === 'function') wireNewUI();
 
 calculate();
+updateDockVisibility();

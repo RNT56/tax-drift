@@ -1,3 +1,5 @@
+const { getConfiguredProviders, getLatestPrice, normalizeCurrency } = require('../lib/market-data-providers');
+
 /* ── In-memory price cache ──────────────────────────────────────────── */
 const CACHE_MAX = 100;
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3 minutes — acceptable for a tax calculator
@@ -24,6 +26,28 @@ function cacheSet(key, value) {
   cache.set(key, { value, ts: Date.now() });
 }
 
+function publicPriceResult(result) {
+  const payload = {
+    symbol: result.symbol,
+    exchange: result.exchange,
+    currency: result.currency,
+    price: result.price,
+    source: 'Market data',
+    fetchedAt: result.fetchedAt,
+    converted: Boolean(result.converted)
+  };
+
+  if (result.converted) {
+    payload.originalPrice = result.originalPrice;
+    payload.originalCurrency = result.originalCurrency;
+    payload.fxRate = result.fxRate;
+    payload.fxFromCurrency = result.fxFromCurrency;
+    payload.fxToCurrency = result.fxToCurrency;
+  }
+
+  return payload;
+}
+
 /* ── Helpers ───────────────────────────────────────────────────────── */
 const json = (statusCode, payload, cacheSeconds = 0) => ({
   statusCode,
@@ -36,74 +60,66 @@ const json = (statusCode, payload, cacheSeconds = 0) => ({
   body: JSON.stringify(payload)
 });
 
-function normalizeCurrency(value) {
-  return String(value || 'EUR').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3) || 'EUR';
-}
-
 /* ── Handler ───────────────────────────────────────────────────────── */
 exports.handler = async (event) => {
   const symbol = String(event.queryStringParameters?.symbol || '').trim();
   const exchange = String(event.queryStringParameters?.exchange || '').trim();
   const currency = normalizeCurrency(event.queryStringParameters?.currency);
-  const apiKey = process.env.TWELVE_DATA_API_KEY;
+  const sourceCurrency = normalizeCurrency(event.queryStringParameters?.sourceCurrency || event.queryStringParameters?.assetCurrency || currency);
 
   if (!symbol) {
     return json(400, { error: 'Missing symbol.' });
   }
 
-  if (!apiKey) {
+  const configuredProviders = getConfiguredProviders();
+
+  if (!configuredProviders.length) {
     return json(503, {
       error: 'No market data API key configured.',
-      message: 'Live prices require TWELVE_DATA_API_KEY in Netlify. Enter the current price manually or set the environment variable.'
+      message: 'Live prices require configured market data. Enter the current price manually.'
     });
   }
 
   // Check server-side cache
-  const cacheKey = `price:${symbol}:${exchange}`;
+  const providerToken = configuredProviders.map(provider => provider.id).join(',');
+  const cacheKey = `price:${symbol}:${exchange}:${sourceCurrency}:${currency}:${providerToken}`;
   const cached = cacheGet(cacheKey);
   if (cached) {
     return json(200, { ...cached, cached: true }, 60);
   }
 
   try {
-    const url = new URL('https://api.twelvedata.com/price');
-    url.searchParams.set('symbol', symbol);
-    url.searchParams.set('dp', '6');
-    if (exchange) url.searchParams.set('exchange', exchange);
-
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `apikey ${apiKey}`
-      }
+    const { result, errors, providerCount } = await getLatestPrice({
+      symbol,
+      exchange,
+      micCode: event.queryStringParameters?.mic_code || event.queryStringParameters?.micCode || '',
+      currency,
+      sourceCurrency,
+      type: event.queryStringParameters?.type || '',
+      providerSymbol: event.queryStringParameters?.providerSymbol || '',
+      twelvedataSymbol: event.queryStringParameters?.twelvedataSymbol || '',
+      fmpSymbol: event.queryStringParameters?.fmpSymbol || '',
+      eodhdSymbol: event.queryStringParameters?.eodhdSymbol || '',
+      alphavantageSymbol: event.queryStringParameters?.alphavantageSymbol || ''
     });
 
-    const payload = await response.json().catch(() => ({}));
-    const price = Number(payload.price);
-
-    if (!response.ok || payload.status === 'error' || !Number.isFinite(price)) {
-      return json(response.ok ? 422 : response.status, {
-        error: payload.message || 'Price unavailable for this instrument.',
-        source: 'twelvedata'
+    if (!result) {
+      return json(422, {
+        error: 'Price unavailable for this instrument.',
+        message: `Price unavailable after checking configured market data. Enter the current price manually.`,
+        errorCount: errors.length,
+        checkedProviders: providerCount
       });
     }
 
-    const result = {
-      symbol,
-      exchange,
-      currency,
-      price,
-      source: 'Twelve Data',
-      fetchedAt: new Date().toISOString()
-    };
-
-    // Cache the successful price lookup
-    cacheSet(cacheKey, result);
-    return json(200, result, 60);
+    const publicResult = publicPriceResult(result);
+    cacheSet(cacheKey, publicResult);
+    return json(200, publicResult, 60);
   } catch (error) {
     return json(502, {
       error: 'Market data request failed.',
       message: error.message,
-      source: 'twelvedata'
+      source: 'Market data'
     });
   }
 };

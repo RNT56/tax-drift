@@ -2,7 +2,7 @@
 
 A mobile-first, dependency-free web app for evaluating taxable sell/rebuy and stock-switch decisions.
 
-The app starts with blank position fields and can be used for any stock, ETF, index or instrument manually. It also includes optional Netlify Functions for symbol search and latest-price lookup using Twelve Data.
+The app starts with blank position fields and can be used for any stock, ETF, index or instrument manually. It also includes optional Netlify Functions for multi-provider symbol search and latest-price lookup.
 
 ## What is included
 
@@ -12,7 +12,8 @@ The app starts with blank position fields and can be used for any stock, ETF, in
 - Locale-friendly numeric parsing: `163,26` and `163.26` both work
 - Dynamic calculation currency field
 - Optional stock / ETF / index search
-- Optional latest price fill through Netlify Functions
+- Optional multi-provider latest price fill through Netlify Functions
+- Automatic FX conversion from instrument currency into the calculation currency
 - Local fallback symbol catalog if no API key is configured
 - No external browser dependencies, fonts or CDN calls
 - Netlify-ready `netlify.toml`
@@ -29,15 +30,20 @@ The app starts with blank position fields and can be used for any stock, ETF, in
 5. The functions directory is `netlify/functions`.
 6. No build command is required.
 
-### Environment variable for live market data
+### Environment variables for live market data
 
-The app works without an API key, but live symbol search and latest price lookup need a Twelve Data key.
+The app works without API keys, but live symbol search and latest price lookup need at least one market data provider key.
 
-Set this in Netlify:
+Supported providers are tried in this order:
 
 ```text
-TWELVE_DATA_API_KEY=your_key_here
+TWELVE_DATA_API_KEY=your_twelve_data_key
+FMP_API_KEY=your_financial_modeling_prep_key
+EODHD_API_KEY=your_eodhd_key
+ALPHA_VANTAGE_API_KEY=your_alpha_vantage_key
 ```
+
+You do not need all keys. Configure more than one key for broader coverage, FX conversion coverage and failover when a provider cannot quote a symbol.
 
 Set it under:
 
@@ -66,23 +72,30 @@ Then open the local Netlify Dev URL.
 index.html
 styles.css
 app.js
+symbol-catalog.js
 site.webmanifest
 netlify.toml
 package.json
 netlify/functions/search-symbols.js
 netlify/functions/get-price.js
+netlify/functions/api-status.js
 netlify/lib/fallback-symbols.js
+netlify/lib/market-data-providers.js
 ```
 
 ## API flow
 
-The browser never calls Twelve Data directly.
+The browser never calls market data providers directly.
 
 ```text
 Browser
   → /.netlify/functions/search-symbols?q=apple
   → Netlify Function
-  → Twelve Data /symbol_search
+  → local curated catalog + configured providers
+    → Twelve Data /symbol_search
+    → FMP /search-symbol + /search-name
+    → EODHD /search
+    → Alpha Vantage SYMBOL_SEARCH
 ```
 
 For prices:
@@ -91,10 +104,18 @@ For prices:
 Browser
   → /.netlify/functions/get-price?symbol=AAPL&exchange=NASDAQ&currency=USD
   → Netlify Function
-  → Twelve Data /price
+  → first successful configured provider
+    → Twelve Data /price
+    → FMP /quote
+    → EODHD /real-time
+    → Alpha Vantage GLOBAL_QUOTE
 ```
 
-If `TWELVE_DATA_API_KEY` is missing, `search-symbols` falls back to the local symbol list and `get-price` returns a clear configuration message.
+If no provider key is configured, `search-symbols` falls back to the local symbol list and `get-price` returns a clear configuration message. If a provider key is configured but that provider cannot quote the selected symbol, `get-price` tries the next configured provider.
+
+Provider names are intentionally not shown in the app UI. Netlify Function logs include provider success/failure events such as `market_data.price.success`, `market_data.price.failure`, `market_data.fx.success` and `market_data.search.success` so provider coverage can be reviewed server-side without exposing sources to users.
+
+When the selected instrument currency differs from the calculation currency, `get-price` fetches the instrument quote in its native currency, fetches a live FX rate, and returns a converted current price in the calculation currency. If FX conversion is unavailable, the app does not fill an unconverted price.
 
 ## Calculation model
 
@@ -167,24 +188,40 @@ If you select a USD instrument and fetch a USD price, the calculator switches th
 
 The default German tax preset is `26.375%`, reflecting a common model of 25% capital gains tax plus a 5.5% solidarity surcharge.
 
-The calculator does not model:
+Simple flat mode intentionally stays approximate. German detailed mode adds church tax, saver allowance, ETF partial exemptions, loss pots, foreign tax credits and FIFO lots, but TaxSwitch remains a planning tool and not tax advice.
 
-- church tax
-- saver’s allowance
-- ETF partial exemptions
-- loss carry-forward
-- broker-specific tax handling
-- foreign exchange conversion
-- currency conversion dates
-- multi-lot FIFO cost basis
+## Netlify premium setup
 
-## Notes for future upgrades
+TaxSwitch runs as a static app with Netlify Functions, Netlify Identity, Netlify Blobs, Scheduled Functions and optional Resend email alerts.
 
-Good next additions:
+```bash
+npm install
+npm run check
+npm run dev
+```
 
-- multi-lot / FIFO mode
-- optional unused German saver’s allowance
-- ETF partial-exemption mode
-- portfolio target weights
-- CSV import from broker exports
-- saved scenarios with shareable URLs
+For a live site:
+
+```bash
+npx netlify login
+npx netlify init
+npx netlify env:set DATA_ENCRYPTION_KEY "<32+ character secret>"
+npx netlify env:set RESEND_API_KEY "<resend key>"
+npx netlify env:set FMP_API_KEY "<market data key>"
+npm run deploy:preview
+npm run deploy:prod
+```
+
+Enable Netlify Identity in the site dashboard before testing signed-in workspace sync. Netlify Blobs is used as the database, so no separate DB is required.
+
+## Premium features
+
+- local and signed-in workspaces
+- encrypted backend workspace/import/report/alert storage
+- generic CSV, Trade Republic, Scalable Capital and IBKR import detection
+- backend text-PDF parsing for Trade Republic and Scalable Capital confirmations
+- FIFO lot accounting from imported transactions
+- German detailed tax breakdown
+- portfolio positions, targets, scenario comparison and deterministic optimizer
+- CSV/JSON/HTML audit reports
+- local and scheduled alert evaluation

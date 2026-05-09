@@ -60,6 +60,30 @@ function requiredGrossReturn(cashRatio, oldReturn, taxRate, includeTax) {
   return req / (1 - taxRate);
 }
 
+function requiredReturnForMode({ cashAfter, sellValue, cashRatio, oldReturn, taxRate, includeTax, hurdleMode = 'beat-pretax', taxProfile } = {}) {
+  if (!Number.isFinite(cashRatio) || cashRatio <= 0) return NaN;
+  if (hurdleMode === 'reduce-risk') return 0;
+
+  let targetValue = sellValue * (1 + oldReturn);
+  if (hurdleMode === 'recover-drag') {
+    targetValue = sellValue;
+  } else if (hurdleMode === 'beat-posttax') {
+    if (taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined') {
+      targetValue = GermanTax.afterGermanTaxFutureValue(sellValue, oldReturn, taxProfile);
+    } else {
+      targetValue = afterTaxFutureValue(sellValue, oldReturn, taxRate, true);
+    }
+  }
+
+  if (taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined') {
+    return GermanTax.requiredGrossReturnDetailed({ cash: cashAfter, targetValue, profile: taxProfile });
+  }
+
+  const req = targetValue / cashAfter - 1;
+  if (!includeTax || req <= 0) return req;
+  return req / (1 - taxRate);
+}
+
 /* ── Multi-lot blending ────────────────────────────────────────────── */
 function blendLots(lots) {
   let totalShares = 0, totalCost = 0;
@@ -98,22 +122,44 @@ function calculateValues(input) {
     const sellCostTax = sellCostBasis * input.fxRateBuy;
     fxAdjustedTaxableGain = Math.max(sellValueTax - sellCostTax, 0);
   }
-  const taxDue = fxAdjustedTaxableGain * input.taxRate;
+  let taxBreakdown = null;
+  if (input.lotSaleResult && !input.lotSaleResult.errors?.length) {
+    fxAdjustedTaxableGain = input.lotSaleResult.taxableGain;
+  }
+  if (input.taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined') {
+    taxBreakdown = GermanTax.calculateGermanTax({
+      grossGain: input.lotSaleResult?.rawGain ?? fxAdjustedTaxableGain,
+      shares: sellShares,
+      profile: input.taxProfile
+    });
+  }
+  const taxDue = taxBreakdown ? taxBreakdown.taxDue : (input.lotSaleResult?.taxDue ?? fxAdjustedTaxableGain * input.taxRate);
   const costsPortion = input.transactionCost * sellFraction;
   const cashAfter = Math.max(sellValue - taxDue - costsPortion, 0);
   const breakEvenPrice = sellShares > 0 ? cashAfter / sellShares : NaN;
   const requiredDrop = input.currentPrice - breakEvenPrice;
   const requiredDropPct = input.currentPrice > 0 ? requiredDrop / input.currentPrice : NaN;
   const cashRatio = sellValue > 0 ? cashAfter / sellValue : NaN;
-  const rNewReturn = requiredGrossReturn(cashRatio, input.expectedOldReturn, input.taxRate, input.includeTaxOnNew);
+  const rNewReturn = requiredReturnForMode({
+    cashAfter,
+    sellValue,
+    cashRatio,
+    oldReturn: input.expectedOldReturn,
+    taxRate: input.taxRate,
+    includeTax: input.includeTaxOnNew,
+    hurdleMode: input.hurdleMode,
+    taxProfile: input.taxProfile
+  });
   const requiredExcessReturn = rNewReturn - input.expectedOldReturn;
   const futureValueOld = sellValue * (1 + input.expectedOldReturn);
-  const futureValueNew = afterTaxFutureValue(cashAfter, input.expectedNewReturn, input.taxRate, input.includeTaxOnNew);
+  const futureValueNew = input.taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined'
+    ? GermanTax.afterGermanTaxFutureValue(cashAfter, input.expectedNewReturn, input.taxProfile)
+    : afterTaxFutureValue(cashAfter, input.expectedNewReturn, input.taxRate, input.includeTaxOnNew);
   const futureDifference = futureValueNew - futureValueOld;
   const remainingShares = input.shares - sellShares;
   const remainingValue = remainingShares * input.currentPrice;
 
-  return { currentValue, costBasis, rawGain, taxableGain: fxAdjustedTaxableGain, taxDue, cashAfter, breakEvenPrice, requiredDrop, requiredDropPct, cashRatio, requiredNewReturn: rNewReturn, requiredExcessReturn, futureValueOld, futureValueNew, futureDifference, sellShares, sellValue, remainingShares, remainingValue };
+  return { currentValue, costBasis, rawGain, taxableGain: taxBreakdown?.taxableGain ?? fxAdjustedTaxableGain, taxBreakdown, taxDue, cashAfter, breakEvenPrice, requiredDrop, requiredDropPct, cashRatio, requiredNewReturn: rNewReturn, requiredExcessReturn, futureValueOld, futureValueNew, futureDifference, sellShares, sellValue, remainingShares, remainingValue, lotSaleResult: input.lotSaleResult || null };
 }
 
 /* ── Rebalance calculation ─────────────────────────────────────────── */
@@ -131,43 +177,11 @@ function calculateRebalance(input, output) {
   return { currentWeight, sharesToSell, taxTriggered, cashReleased };
 }
 
-/* ── Fallback symbols ──────────────────────────────────────────────── */
-const FALLBACK_SYMBOLS = [
-  { symbol: 'AAPL', name: 'Apple Inc', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'MSFT', name: 'Microsoft Corporation', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'NVDA', name: 'NVIDIA Corporation', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'AMZN', name: 'Amazon.com Inc', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'GOOGL', name: 'Alphabet Inc Class A', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'META', name: 'Meta Platforms Inc', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'SPY', name: 'SPDR S&P 500 ETF Trust', exchange: 'NYSE Arca', country: 'United States', currency: 'USD', type: 'ETF' },
-  { symbol: 'VOO', name: 'Vanguard S&P 500 ETF', exchange: 'NYSE Arca', country: 'United States', currency: 'USD', type: 'ETF' },
-  { symbol: 'QQQ', name: 'Invesco QQQ Trust', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'ETF' },
-  { symbol: 'BMW', name: 'Bayerische Motoren Werke AG', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'SAP', name: 'SAP SE', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'SIE', name: 'Siemens AG', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'ALV', name: 'Allianz SE', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'DTE', name: 'Deutsche Telekom AG', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'ASML', name: 'ASML Holding NV', exchange: 'Euronext Amsterdam', country: 'Netherlands', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'DAX', name: 'DAX Performance Index', exchange: 'Deutsche Börse', country: 'Germany', currency: 'EUR', type: 'Index' },
-  { symbol: 'IWDA', name: 'iShares Core MSCI World UCITS ETF', exchange: 'Euronext Amsterdam', country: 'Netherlands', currency: 'EUR', type: 'ETF' },
-  { symbol: 'VWCE', name: 'Vanguard FTSE All-World UCITS ETF', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'ETF' },
-  { symbol: 'SXR8', name: 'iShares Core S&P 500 UCITS ETF', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'ETF' },
-];
-
 function localSearchSymbols(query, limit = 10) {
-  const q = String(query || '').trim().toLowerCase();
-  if (!q) return [];
-  return FALLBACK_SYMBOLS.map(item => {
-    const sym = item.symbol.toLowerCase(), nm = item.name.toLowerCase();
-    let score = 0;
-    if (sym === q) score += 100;
-    if (sym.startsWith(q)) score += 55;
-    if (nm.startsWith(q)) score += 40;
-    if (sym.includes(q)) score += 24;
-    if (nm.includes(q)) score += 18;
-    if (item.exchange.toLowerCase().includes(q) || item.type.toLowerCase().includes(q)) score += 8;
-    return { ...item, score, source: 'fallback' };
-  }).filter(i => i.score > 0).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, limit).map(({ score, ...i }) => i);
+  if (typeof SymbolCatalog !== 'undefined' && typeof SymbolCatalog.searchFallback === 'function') {
+    return SymbolCatalog.searchFallback(query, limit);
+  }
+  return [];
 }
 
 /* ── URL state encoding/decoding ───────────────────────────────────── */
@@ -186,6 +200,12 @@ function encodeStateToURL(els) {
   if (val('customSellShares')) p.set('sellShares', val('customSellShares'));
   if (val('portfolioValue')) p.set('pv', val('portfolioValue'));
   if (val('targetWeight')) p.set('tw', val('targetWeight'));
+  const activeFx = document.querySelector('[data-fx-mode].is-active');
+  if (activeFx) p.set('fxMode', activeFx.dataset.fxMode);
+  if (val('positionCurrency')) p.set('positionCurrency', val('positionCurrency'));
+  if (val('taxCurrency')) p.set('taxCurrency', val('taxCurrency'));
+  if (val('fxRateBuy')) p.set('fxRateBuy', val('fxRateBuy'));
+  if (val('fxRateNow')) p.set('fxRateNow', val('fxRateNow'));
   // Clean empty params
   for (const [k, v] of [...p.entries()]) { if (!v) p.delete(k); }
   return p.toString();
@@ -203,6 +223,13 @@ function decodeStateFromURL() {
   if (taxNew !== null) document.getElementById('includeTaxOnNew').checked = taxNew === '1';
   if (p.get('pv')) set('portfolioValue', 'pv');
   if (p.get('tw')) set('targetWeight', 'tw');
+  if (p.get('sell') && typeof activateSellChip === 'function') activateSellChip(p.get('sell'));
+  if (p.get('sellShares')) set('customSellShares', 'sellShares');
+  if (p.get('fxMode') && typeof activateFxMode === 'function') activateFxMode(p.get('fxMode'));
+  set('positionCurrency', 'positionCurrency');
+  set('taxCurrency', 'taxCurrency');
+  set('fxRateBuy', 'fxRateBuy');
+  set('fxRateNow', 'fxRateNow');
   return true;
 }
 
@@ -227,5 +254,36 @@ function generateCSV(input, output) {
     ['Disclaimer'],
     ['This is not financial advice. Tax calculation is simplified and may not reflect your actual tax situation.']
   ];
-  return rows.map(r => r.join(',')).join('\n');
+  if (typeof TaxWorkspace !== 'undefined' && typeof TaxWorkspace.serializeRowsCsv === 'function') {
+    return TaxWorkspace.serializeRowsCsv(rows);
+  }
+  const esc = (value) => {
+    const text = String(value ?? '');
+    return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  return rows.map(r => r.map(esc).join(',')).join('\n');
+}
+
+if (typeof module === 'object' && module.exports) {
+  module.exports = {
+    parseLocaleNumber,
+    normalizeCurrencyCode,
+    formatCurrency,
+    formatInputNumber,
+    formatPercent,
+    formatShares,
+    clampTaxRate,
+    clampReturn,
+    afterTaxFutureValue,
+    requiredGrossReturn,
+    requiredReturnForMode,
+    blendLots,
+    hasCoreInputs,
+    calculateValues,
+    calculateRebalance,
+    localSearchSymbols,
+    encodeStateToURL,
+    decodeStateFromURL,
+    generateCSV
+  };
 }
