@@ -348,9 +348,9 @@ main {
 }
 
 .field:focus-within {
-  border-color: rgba(43, 99, 255, 0.55);
-  box-shadow: 0 0 0 4px rgba(43, 99, 255, 0.11);
-  transform: translateY(-1px);
+  border-color: rgba(16, 24, 40, 0.16);
+  box-shadow: none;
+  transform: none;
 }
 
 .field--wide {
@@ -2417,12 +2417,16 @@ body {
 }
 
 button:focus-visible,
-input:focus-visible,
 summary:focus-visible,
 a:focus-visible,
 .result-card:focus-visible {
-  outline: 3px solid rgba(49, 92, 246, 0.32);
+  outline: 3px solid rgba(16, 24, 40, 0.18);
   outline-offset: 3px;
+}
+
+input:focus-visible,
+.custom-select__button:focus-visible {
+  outline: 0;
 }
 
 .app-shell {
@@ -2707,8 +2711,8 @@ main {
 
 .field:focus-within {
   transform: none;
-  border-color: rgba(49, 92, 246, 0.62);
-  box-shadow: 0 0 0 4px rgba(49, 92, 246, 0.12);
+  border-color: rgba(16, 24, 40, 0.14);
+  box-shadow: none;
 }
 
 .field span {
