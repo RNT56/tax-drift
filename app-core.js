@@ -83,7 +83,7 @@ function calculateValues(input) {
   if (!hasCoreInputs(input)) {
     return { currentValue: NaN, costBasis: NaN, rawGain: NaN, taxableGain: NaN, taxDue: NaN, cashAfter: NaN, breakEvenPrice: NaN, requiredDrop: NaN, requiredDropPct: NaN, cashRatio: NaN, requiredNewReturn: NaN, requiredExcessReturn: NaN, futureValueOld: NaN, futureValueNew: NaN, futureDifference: NaN, sellShares: NaN, sellValue: NaN, remainingShares: NaN, remainingValue: NaN };
   }
-  const sellFraction = input.sellFraction || 1;
+  const sellFraction = input.sellFraction ?? 1;
   const sellShares = input.shares * sellFraction;
   const sellValue = sellShares * input.currentPrice;
   const sellCostBasis = sellShares * input.buyPrice;

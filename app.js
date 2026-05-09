@@ -52,47 +52,7 @@ const els = {
   chart: document.getElementById('returnChart')
 };
 
-const FALLBACK_SYMBOLS = [
-  { symbol: 'AAPL', name: 'Apple Inc', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'MSFT', name: 'Microsoft Corporation', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'NVDA', name: 'NVIDIA Corporation', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'AMZN', name: 'Amazon.com Inc', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'GOOGL', name: 'Alphabet Inc Class A', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'META', name: 'Meta Platforms Inc', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'BRK.B', name: 'Berkshire Hathaway Inc Class B', exchange: 'NYSE', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'JPM', name: 'JPMorgan Chase & Co', exchange: 'NYSE', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'V', name: 'Visa Inc', exchange: 'NYSE', country: 'United States', currency: 'USD', type: 'Common Stock' },
-  { symbol: 'SPY', name: 'SPDR S&P 500 ETF Trust', exchange: 'NYSE Arca', country: 'United States', currency: 'USD', type: 'ETF' },
-  { symbol: 'VOO', name: 'Vanguard S&P 500 ETF', exchange: 'NYSE Arca', country: 'United States', currency: 'USD', type: 'ETF' },
-  { symbol: 'QQQ', name: 'Invesco QQQ Trust', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'ETF' },
-  { symbol: 'VT', name: 'Vanguard Total World Stock ETF', exchange: 'NYSE Arca', country: 'United States', currency: 'USD', type: 'ETF' },
-  { symbol: 'BMW', name: 'Bayerische Motoren Werke AG', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'MBG', name: 'Mercedes-Benz Group AG', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'VOW3', name: 'Volkswagen AG Preference Shares', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Preferred Stock' },
-  { symbol: 'SAP', name: 'SAP SE', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'SIE', name: 'Siemens AG', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'ALV', name: 'Allianz SE', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'DTE', name: 'Deutsche Telekom AG', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'AIR', name: 'Airbus SE', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'ASML', name: 'ASML Holding NV', exchange: 'Euronext Amsterdam', country: 'Netherlands', currency: 'EUR', type: 'Common Stock' },
-  { symbol: 'NESN', name: 'Nestlé SA', exchange: 'SIX Swiss Exchange', country: 'Switzerland', currency: 'CHF', type: 'Common Stock' },
-  { symbol: 'NOVN', name: 'Novartis AG', exchange: 'SIX Swiss Exchange', country: 'Switzerland', currency: 'CHF', type: 'Common Stock' },
-  { symbol: 'ROG', name: 'Roche Holding AG', exchange: 'SIX Swiss Exchange', country: 'Switzerland', currency: 'CHF', type: 'Common Stock' },
-  { symbol: '7203', name: 'Toyota Motor Corporation', exchange: 'Tokyo Stock Exchange', country: 'Japan', currency: 'JPY', type: 'Common Stock' },
-  { symbol: '6758', name: 'Sony Group Corporation', exchange: 'Tokyo Stock Exchange', country: 'Japan', currency: 'JPY', type: 'Common Stock' },
-  { symbol: '0700', name: 'Tencent Holdings Ltd', exchange: 'Hong Kong Exchange', country: 'Hong Kong', currency: 'HKD', type: 'Common Stock' },
-  { symbol: '005930', name: 'Samsung Electronics Co Ltd', exchange: 'Korea Exchange', country: 'South Korea', currency: 'KRW', type: 'Common Stock' },
-  { symbol: 'DAX', name: 'DAX Performance Index', exchange: 'Deutsche Börse', country: 'Germany', currency: 'EUR', type: 'Index' },
-  { symbol: 'SPX', name: 'S&P 500 Index', exchange: 'CBOE', country: 'United States', currency: 'USD', type: 'Index' },
-  { symbol: 'NDX', name: 'NASDAQ 100 Index', exchange: 'NASDAQ', country: 'United States', currency: 'USD', type: 'Index' },
-  { symbol: 'DJI', name: 'Dow Jones Industrial Average', exchange: 'NYSE', country: 'United States', currency: 'USD', type: 'Index' },
-  { symbol: 'SX5E', name: 'EURO STOXX 50 Index', exchange: 'STOXX', country: 'Europe', currency: 'EUR', type: 'Index' },
-  { symbol: 'IWDA', name: 'iShares Core MSCI World UCITS ETF', exchange: 'Euronext Amsterdam', country: 'Netherlands', currency: 'EUR', type: 'ETF' },
-  { symbol: 'EUNL', name: 'iShares Core MSCI World UCITS ETF', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'ETF' },
-  { symbol: 'VWCE', name: 'Vanguard FTSE All-World UCITS ETF', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'ETF' },
-  { symbol: 'SXR8', name: 'iShares Core S&P 500 UCITS ETF', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'ETF' },
-  { symbol: 'EXS1', name: 'iShares Core DAX UCITS ETF', exchange: 'XETRA', country: 'Germany', currency: 'EUR', type: 'ETF' }
-];
+/* FALLBACK_SYMBOLS now in app-core.js */
 
 let activeMode = 'same';
 let lastSignature = '';
@@ -100,79 +60,8 @@ let selectedInstrument = null;
 let searchTimer = null;
 let searchAbort = null;
 
-function parseLocaleNumber(value) {
-  const raw = String(value ?? '').trim().replace(/\s/g, '');
-  if (!raw) return NaN;
-
-  let normalized = raw;
-  const comma = normalized.lastIndexOf(',');
-  const dot = normalized.lastIndexOf('.');
-
-  if (comma > -1 && dot > -1) {
-    normalized = comma > dot
-      ? normalized.replace(/\./g, '').replace(',', '.')
-      : normalized.replace(/,/g, '');
-  } else if (comma > -1) {
-    normalized = normalized.replace(',', '.');
-  }
-
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : NaN;
-}
-
-function normalizeCurrencyCode(value) {
-  const code = String(value || 'EUR').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
-  return code || 'EUR';
-}
-
-function formatCurrency(value, code = 'EUR') {
-  if (!Number.isFinite(value)) return '—';
-  const currencyCode = normalizeCurrencyCode(code);
-  try {
-    return new Intl.NumberFormat('de-DE', {
-      style: 'currency',
-      currency: currencyCode,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: Math.abs(value) >= 1000 ? 2 : 4
-    }).format(value);
-  } catch {
-    return `${new Intl.NumberFormat('de-DE', { maximumFractionDigits: 4 }).format(value)} ${currencyCode}`;
-  }
-}
-
-function formatInputNumber(value) {
-  if (!Number.isFinite(value)) return '';
-  return new Intl.NumberFormat('de-DE', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 6
-  }).format(value);
-}
-
-function formatPercent(value) {
-  if (!Number.isFinite(value)) return '—';
-  return `${new Intl.NumberFormat('de-DE', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(value * 100)}%`;
-}
-
-function formatShares(value) {
-  if (!Number.isFinite(value)) return '—';
-  return new Intl.NumberFormat('de-DE', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 4
-  }).format(value);
-}
-
-function clampTaxRate(value) {
-  if (!Number.isFinite(value)) return 0;
-  return Math.min(Math.max(value, 0), 0.95);
-}
-
-function clampReturn(value) {
-  if (!Number.isFinite(value)) return NaN;
-  return Math.max(value, -0.9999);
-}
+/* parseLocaleNumber, normalizeCurrencyCode, formatCurrency, formatInputNumber,
+   formatPercent, formatShares, clampTaxRate, clampReturn now in app-core.js */
 
 function setCurrency(code) {
   const normalized = normalizeCurrencyCode(code);
@@ -197,6 +86,11 @@ function getInputs() {
   const expectedNewReturnParsed = parseLocaleNumber(els.expectedNewReturn.value);
   const expectedNewReturn = Number.isFinite(expectedNewReturnParsed) ? clampReturn(expectedNewReturnParsed / 100) : NaN;
   const currencyCode = normalizeCurrencyCode(els.currencyCode.value);
+  const sf = typeof getSellFraction === 'function' ? getSellFraction() : 1;
+  const fxRateBuyVal = ui ? parseLocaleNumber(ui.fxRateBuy?.value) : NaN;
+  const fxRateNowVal = ui ? parseLocaleNumber(ui.fxRateNow?.value) : NaN;
+  const pvVal = ui ? parseLocaleNumber(ui.portfolioValue?.value) : NaN;
+  const twVal = ui ? parseLocaleNumber(ui.targetWeight?.value) : NaN;
 
   return {
     shares: Number.isFinite(shares) ? Math.max(shares, 0) : NaN,
@@ -208,99 +102,18 @@ function getInputs() {
     expectedOldReturn,
     expectedNewReturn,
     includeTaxOnNew: els.includeTaxOnNew.checked,
-    currencyCode
+    currencyCode,
+    sellFraction: sf,
+    fxMode: typeof fxMode !== 'undefined' ? fxMode : 'same',
+    fxRateBuy: fxRateBuyVal,
+    fxRateNow: fxRateNowVal,
+    portfolioValue: pvVal,
+    targetWeight: twVal
   };
 }
 
-function hasCoreInputs(input) {
-  return Number.isFinite(input.shares)
-    && input.shares > 0
-    && Number.isFinite(input.buyPrice)
-    && input.buyPrice >= 0
-    && Number.isFinite(input.currentPrice)
-    && input.currentPrice > 0
-    && Number.isFinite(input.taxRate)
-    && input.taxRate >= 0;
-}
-
-function afterTaxFutureValue(cash, grossReturn, taxRate, includeTaxOnGain) {
-  if (!Number.isFinite(grossReturn)) return NaN;
-  if (!includeTaxOnGain || grossReturn <= 0) return cash * (1 + grossReturn);
-  return cash * (1 + grossReturn * (1 - taxRate));
-}
-
-function requiredGrossReturn(cashRatio, oldReturn, taxRate, includeTaxOnGain) {
-  if (!Number.isFinite(cashRatio) || cashRatio <= 0) return NaN;
-  const requiredNetReturn = (1 + oldReturn) / cashRatio - 1;
-  if (!includeTaxOnGain || requiredNetReturn <= 0) return requiredNetReturn;
-  return requiredNetReturn / (1 - taxRate);
-}
-
-function calculateValues(input) {
-  if (!hasCoreInputs(input)) {
-    return {
-      currentValue: NaN,
-      costBasis: NaN,
-      rawGain: NaN,
-      taxableGain: NaN,
-      taxDue: NaN,
-      cashAfter: NaN,
-      breakEvenPrice: NaN,
-      requiredDrop: NaN,
-      requiredDropPct: NaN,
-      cashRatio: NaN,
-      requiredNewReturn: NaN,
-      requiredExcessReturn: NaN,
-      futureValueOld: NaN,
-      futureValueNew: NaN,
-      futureDifference: NaN
-    };
-  }
-
-  const currentValue = input.shares * input.currentPrice;
-  const costBasis = input.shares * input.buyPrice;
-  const rawGain = currentValue - costBasis;
-  const taxableGain = Math.max(rawGain, 0);
-  const taxDue = taxableGain * input.taxRate;
-  const cashAfter = Math.max(currentValue - taxDue - input.transactionCost, 0);
-  const breakEvenPrice = input.shares > 0 ? cashAfter / input.shares : NaN;
-  const requiredDrop = input.currentPrice - breakEvenPrice;
-  const requiredDropPct = input.currentPrice > 0 ? requiredDrop / input.currentPrice : NaN;
-  const cashRatio = currentValue > 0 ? cashAfter / currentValue : NaN;
-  const requiredNewReturn = requiredGrossReturn(
-    cashRatio,
-    input.expectedOldReturn,
-    input.taxRate,
-    input.includeTaxOnNew
-  );
-  const requiredExcessReturn = requiredNewReturn - input.expectedOldReturn;
-  const futureValueOld = currentValue * (1 + input.expectedOldReturn);
-  const futureValueNew = afterTaxFutureValue(
-    cashAfter,
-    input.expectedNewReturn,
-    input.taxRate,
-    input.includeTaxOnNew
-  );
-  const futureDifference = futureValueNew - futureValueOld;
-
-  return {
-    currentValue,
-    costBasis,
-    rawGain,
-    taxableGain,
-    taxDue,
-    cashAfter,
-    breakEvenPrice,
-    requiredDrop,
-    requiredDropPct,
-    cashRatio,
-    requiredNewReturn,
-    requiredExcessReturn,
-    futureValueOld,
-    futureValueNew,
-    futureDifference
-  };
-}
+/* hasCoreInputs, afterTaxFutureValue, requiredGrossReturn,
+   calculateValues now in app-core.js (with sellFraction + FX support) */
 
 function setText(element, value) {
   if (!element) return;
@@ -546,6 +359,11 @@ function calculate() {
     drawChart(input, output);
     lastSignature = signature;
   }
+  // New v2 UI updates
+  if (typeof updateTaxDrag === 'function') updateTaxDrag(input, output);
+  if (typeof updatePartialSell === 'function') updatePartialSell(input, output);
+  if (typeof updatePortfolio === 'function') updatePortfolio(input, output);
+  if (typeof saveToLocalStorage === 'function') saveToLocalStorage();
 }
 
 function setMode(mode) {
@@ -560,30 +378,7 @@ function setMode(mode) {
   requestAnimationFrame(calculate);
 }
 
-function localSearchSymbols(query, limit = 10) {
-  const q = String(query || '').trim().toLowerCase();
-  if (!q) return [];
-
-  return FALLBACK_SYMBOLS
-    .map((item) => {
-      const symbol = item.symbol.toLowerCase();
-      const name = item.name.toLowerCase();
-      const exchange = item.exchange.toLowerCase();
-      const type = item.type.toLowerCase();
-      let score = 0;
-      if (symbol === q) score += 100;
-      if (symbol.startsWith(q)) score += 55;
-      if (name.startsWith(q)) score += 40;
-      if (symbol.includes(q)) score += 24;
-      if (name.includes(q)) score += 18;
-      if (exchange.includes(q) || type.includes(q)) score += 8;
-      return { ...item, score, source: 'fallback' };
-    })
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
-    .slice(0, limit)
-    .map(({ score, ...item }) => item);
-}
+/* localSearchSymbols now in app-core.js */
 
 function setMarketStatus(text, tone = '') {
   els.marketDataStatus.textContent = text;
@@ -733,12 +528,20 @@ async function useLatestPrice() {
 
     const price = Number(payload.price);
     const returnedCurrency = normalizeCurrencyCode(payload.currency || selectedInstrument.currency || els.currencyCode.value);
-    els.currentPrice.value = formatInputNumber(price);
-    setCurrency(returnedCurrency);
-    selectedInstrument.currency = returnedCurrency;
-    const tone = returnedCurrency === 'EUR' ? 'success' : 'warning';
-    setMarketStatus(`Filled latest ${returnedCurrency} price from ${payload.source || 'market data'}. Verify that your buy price and costs use ${returnedCurrency}.`, tone);
-    calculate();
+    // Show price confirmation dialog
+    if (ui && ui.priceConfirmation) {
+      pendingPrice = { price, currency: returnedCurrency, source: payload.source || 'market data' };
+      ui.confirmPrice.textContent = formatCurrency(price, returnedCurrency);
+      ui.priceConfirmation.hidden = false;
+      setMarketStatus(`Price found: ${formatCurrency(price, returnedCurrency)}. Confirm to use it.`, 'success');
+    } else {
+      // Fallback: apply directly
+      els.currentPrice.value = formatInputNumber(price);
+      setCurrency(returnedCurrency);
+      selectedInstrument.currency = returnedCurrency;
+      setMarketStatus(`Filled latest ${returnedCurrency} price from ${payload.source || 'market data'}.`, 'success');
+      calculate();
+    }
   } catch (error) {
     setMarketStatus('Live price unavailable in this environment. Enter the current price manually.', 'warning');
   } finally {
@@ -758,6 +561,20 @@ function clearInputs() {
   els.expectedNewReturn.value = '';
   els.includeTaxOnNew.checked = true;
   clearSelectedInstrument({ clearSearch: true });
+  // Reset new v2 fields
+  if (typeof clearLots === 'function') clearLots();
+  if (typeof activateSellChip === 'function') activateSellChip('100');
+  if (typeof activateFxMode === 'function') activateFxMode('same');
+  if (ui) {
+    if (ui.portfolioValue) ui.portfolioValue.value = '';
+    if (ui.targetWeight) ui.targetWeight.value = '';
+    if (ui.customSellShares) ui.customSellShares.value = '';
+    if (ui.fxRateBuy) ui.fxRateBuy.value = '';
+    if (ui.fxRateNow) ui.fxRateNow.value = '';
+    if (ui.priceConfirmation) ui.priceConfirmation.hidden = true;
+    if (ui.priceTimestamp) ui.priceTimestamp.hidden = true;
+  }
+  try { localStorage.removeItem(LS_KEY); } catch(e) {}
   setCurrency('EUR');
   setMode('same');
   calculate();
@@ -816,4 +633,12 @@ document.addEventListener('click', (event) => {
 });
 
 setCurrency(els.currencyCode.value);
+
+// Initialize: URL state > localStorage > fresh
+const urlRestored = typeof decodeStateFromURL === 'function' && decodeStateFromURL();
+if (!urlRestored && typeof restoreFromLocalStorage === 'function') restoreFromLocalStorage();
+
+// Wire new UI
+if (typeof wireNewUI === 'function') wireNewUI();
+
 calculate();

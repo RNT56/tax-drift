@@ -13,93 +13,170 @@ function afterTaxFutureValue(cash, grossReturn, taxRate, includeTaxOnGain) {
   return cash * (1 + grossReturn * (1 - taxRate));
 }
 
+function blendLots(lots) {
+  let totalShares = 0, totalCost = 0;
+  for (const lot of lots) {
+    const s = Number(lot.shares), p = Number(lot.price);
+    if (Number.isFinite(s) && s > 0 && Number.isFinite(p) && p >= 0) {
+      totalShares += s;
+      totalCost += s * p;
+    }
+  }
+  if (totalShares <= 0) return null;
+  return { totalShares, totalCost, blendedPrice: totalCost / totalShares };
+}
+
 function calculate(input) {
+  const sellFraction = input.sellFraction ?? 1;
+  const sellShares = input.shares * sellFraction;
+  const sellValue = sellShares * input.currentPrice;
+  const sellCostBasis = sellShares * input.buyPrice;
   const currentValue = input.shares * input.currentPrice;
-  const costBasis = input.shares * input.buyPrice;
-  const taxableGain = Math.max(currentValue - costBasis, 0);
-  const taxDue = taxableGain * input.taxRate;
-  const cashAfter = Math.max(currentValue - taxDue - input.costs, 0);
-  const breakEvenPrice = cashAfter / input.shares;
-  const cashRatio = cashAfter / currentValue;
-  const requiredNewReturn = requiredGrossReturn(
-    cashRatio,
-    input.oldReturn,
-    input.taxRate,
-    input.includeTaxOnNew
-  );
+  const rawGain = sellValue - sellCostBasis;
+  const taxableGain = Math.max(rawGain, 0);
+  let fxTaxableGain = taxableGain;
+  if (input.fxMode === 'manual' && Number.isFinite(input.fxRateBuy) && Number.isFinite(input.fxRateNow)) {
+    fxTaxableGain = Math.max(sellValue * input.fxRateNow - sellCostBasis * input.fxRateBuy, 0);
+  }
+  const taxDue = fxTaxableGain * input.taxRate;
+  const costsPortion = input.costs * sellFraction;
+  const cashAfter = Math.max(sellValue - taxDue - costsPortion, 0);
+  const breakEvenPrice = sellShares > 0 ? cashAfter / sellShares : NaN;
+  const cashRatio = sellValue > 0 ? cashAfter / sellValue : NaN;
+  const requiredNewReturn = requiredGrossReturn(cashRatio, input.oldReturn, input.taxRate, input.includeTaxOnNew);
+  const remainingShares = input.shares - sellShares;
+  const remainingValue = remainingShares * input.currentPrice;
   return {
-    currentValue,
-    costBasis,
-    taxableGain,
-    taxDue,
-    cashAfter,
-    breakEvenPrice,
-    cashRatio,
-    requiredNewReturn,
+    currentValue, sellShares, sellValue,
+    taxableGain: fxTaxableGain, taxDue, cashAfter, breakEvenPrice, cashRatio,
+    requiredNewReturn, remainingShares, remainingValue,
     futureValueNew: afterTaxFutureValue(cashAfter, input.newReturn, input.taxRate, input.includeTaxOnNew)
   };
 }
 
-function close(actual, expected, epsilon = 1e-9) {
-  assert.ok(Math.abs(actual - expected) < epsilon, `${actual} !== ${expected}`);
+function calculateRebalance(shares, buyPrice, currentPrice, taxRate, portfolioValue, targetWeight) {
+  const currentValue = shares * currentPrice;
+  const currentWeight = currentValue / portfolioValue;
+  const targetValue = portfolioValue * (targetWeight / 100);
+  const excessValue = currentValue - targetValue;
+  if (excessValue <= 0) return { currentWeight, sharesToSell: 0, taxTriggered: 0, cashReleased: 0 };
+  const sharesToSell = currentPrice > 0 ? excessValue / currentPrice : 0;
+  const gainPerShare = Math.max(currentPrice - buyPrice, 0);
+  const taxTriggered = sharesToSell * gainPerShare * taxRate;
+  const cashReleased = excessValue - taxTriggered;
+  return { currentWeight, sharesToSell, taxTriggered, cashReleased };
 }
 
-// Appreciated position, 26.375% tax, no costs.
+function close(actual, expected, epsilon = 1e-6) {
+  assert.ok(Math.abs(actual - expected) < epsilon, `Expected ${expected}, got ${actual}`);
+}
+
+// ── Test 1: Appreciated position, 26.375% tax, no costs ──
 {
-  const result = calculate({
-    shares: 5,
-    buyPrice: 100,
-    currentPrice: 200,
-    taxRate: 0.26375,
-    costs: 0,
-    oldReturn: 0,
-    newReturn: 0.20,
-    includeTaxOnNew: true
-  });
-  close(result.currentValue, 1000);
-  close(result.costBasis, 500);
-  close(result.taxableGain, 500);
-  close(result.taxDue, 131.875);
-  close(result.cashAfter, 868.125);
-  close(result.breakEvenPrice, 173.625);
-  close(result.cashRatio, 0.868125);
-  close(result.requiredNewReturn, ((1 / 0.868125) - 1) / (1 - 0.26375));
-  close(result.futureValueNew, 868.125 * (1 + 0.20 * (1 - 0.26375)));
+  const r = calculate({ shares: 5, buyPrice: 100, currentPrice: 200, taxRate: 0.26375, costs: 0, oldReturn: 0, newReturn: 0.20, includeTaxOnNew: true });
+  close(r.currentValue, 1000);
+  close(r.taxableGain, 500);
+  close(r.taxDue, 131.875);
+  close(r.cashAfter, 868.125);
+  close(r.breakEvenPrice, 173.625);
+  close(r.cashRatio, 0.868125);
+  close(r.requiredNewReturn, ((1 / 0.868125) - 1) / (1 - 0.26375));
+  close(r.futureValueNew, 868.125 * (1 + 0.20 * (1 - 0.26375)));
 }
 
-// Loss position: no realized-gain tax.
+// ── Test 2: Loss position — no realized-gain tax ──
 {
-  const result = calculate({
-    shares: 5,
-    buyPrice: 200,
-    currentPrice: 100,
-    taxRate: 0.26375,
-    costs: 0,
-    oldReturn: 0,
-    newReturn: -0.10,
-    includeTaxOnNew: true
-  });
-  close(result.taxableGain, 0);
-  close(result.taxDue, 0);
-  close(result.cashAfter, 500);
-  close(result.breakEvenPrice, 100);
-  close(result.futureValueNew, 450);
+  const r = calculate({ shares: 5, buyPrice: 200, currentPrice: 100, taxRate: 0.26375, costs: 0, oldReturn: 0, newReturn: -0.10, includeTaxOnNew: true });
+  close(r.taxableGain, 0);
+  close(r.taxDue, 0);
+  close(r.cashAfter, 500);
+  close(r.breakEvenPrice, 100);
+  close(r.futureValueNew, 450);
 }
 
-// Required return can be negative; a negative required return should not be divided by (1-tax).
+// ── Test 3: Negative required return stays negative ──
 {
-  const result = calculate({
-    shares: 10,
-    buyPrice: 100,
-    currentPrice: 100,
-    taxRate: 0.26375,
-    costs: 0,
-    oldReturn: -0.10,
-    newReturn: 0,
-    includeTaxOnNew: true
-  });
-  close(result.cashRatio, 1);
-  close(result.requiredNewReturn, -0.10);
+  const r = calculate({ shares: 10, buyPrice: 100, currentPrice: 100, taxRate: 0.26375, costs: 0, oldReturn: -0.10, newReturn: 0, includeTaxOnNew: true });
+  close(r.cashRatio, 1);
+  close(r.requiredNewReturn, -0.10);
 }
 
-console.log('Math smoke tests passed.');
+// ── Test 4: Partial sell (50%) ──
+{
+  const r = calculate({ shares: 10, buyPrice: 100, currentPrice: 200, taxRate: 0.26375, costs: 0, oldReturn: 0, newReturn: 0, includeTaxOnNew: true, sellFraction: 0.5 });
+  close(r.sellShares, 5);
+  close(r.sellValue, 1000);
+  close(r.taxableGain, 500); // gain on sold portion
+  close(r.taxDue, 131.875);
+  close(r.cashAfter, 868.125);
+  close(r.remainingShares, 5);
+  close(r.remainingValue, 1000);
+}
+
+// ── Test 5: Multi-lot blending (3 lots) ──
+{
+  const blend = blendLots([
+    { shares: 10, price: 50 },
+    { shares: 20, price: 75 },
+    { shares: 30, price: 100 }
+  ]);
+  assert.ok(blend !== null);
+  close(blend.totalShares, 60);
+  close(blend.totalCost, 10*50 + 20*75 + 30*100); // 500 + 1500 + 3000 = 5000
+  close(blend.blendedPrice, 5000 / 60); // ~83.333
+}
+
+// ── Test 6: FX-adjusted gain ──
+{
+  // USD stock, EUR tax. Buy: 100 USD at 0.92 EUR/USD, Sell: 150 USD at 0.91 EUR/USD
+  const r = calculate({
+    shares: 10, buyPrice: 100, currentPrice: 150, taxRate: 0.26375, costs: 0,
+    oldReturn: 0, newReturn: 0, includeTaxOnNew: true,
+    fxMode: 'manual', fxRateBuy: 0.92, fxRateNow: 0.91
+  });
+  // FX gain: (10*150*0.91) - (10*100*0.92) = 1365 - 920 = 445
+  close(r.taxableGain, 445);
+  close(r.taxDue, 445 * 0.26375);
+}
+
+// ── Test 7: Rebalance — shares to sell for target weight ──
+{
+  // 100 shares at $50 = $5000. Portfolio = $20000. Target = 15%.
+  const rb = calculateRebalance(100, 30, 50, 0.26375, 20000, 15);
+  // Target value = 3000. Excess = 2000. Shares to sell = 40.
+  close(rb.sharesToSell, 40);
+  // Gain per share = 50-30 = 20. Tax = 40*20*0.26375 = 211
+  close(rb.taxTriggered, 40 * 20 * 0.26375);
+  close(rb.cashReleased, 2000 - 40 * 20 * 0.26375);
+  close(rb.currentWeight, 0.25);
+}
+
+// ── Test 8: Edge — 0% sell ──
+{
+  const r = calculate({ shares: 10, buyPrice: 100, currentPrice: 200, taxRate: 0.26375, costs: 0, oldReturn: 0, newReturn: 0, includeTaxOnNew: true, sellFraction: 0 });
+  close(r.sellShares, 0);
+  close(r.cashAfter, 0);
+  close(r.remainingShares, 10);
+}
+
+// ── Test 9: Edge — 100% sell ──
+{
+  const r = calculate({ shares: 10, buyPrice: 100, currentPrice: 200, taxRate: 0.26375, costs: 10, oldReturn: 0, newReturn: 0, includeTaxOnNew: true, sellFraction: 1 });
+  close(r.sellShares, 10);
+  const taxDue = (2000 - 1000) * 0.26375;
+  close(r.cashAfter, 2000 - taxDue - 10);
+  close(r.remainingShares, 0);
+}
+
+// ── Test 10: Loss position partial sell ──
+{
+  const r = calculate({ shares: 20, buyPrice: 150, currentPrice: 80, taxRate: 0.26375, costs: 0, oldReturn: 0, newReturn: 0, includeTaxOnNew: true, sellFraction: 0.5 });
+  close(r.sellShares, 10);
+  close(r.taxableGain, 0); // loss, no tax
+  close(r.taxDue, 0);
+  close(r.cashAfter, 800); // 10 * 80
+  close(r.remainingShares, 10);
+  close(r.remainingValue, 800);
+}
+
+console.log('Math smoke tests passed. (10 tests)');

@@ -4,7 +4,7 @@
   "private": true,
   "description": "Mobile-first tax-aware stock rebalance calculator with Netlify Functions for symbol search and latest prices.",
   "scripts": {
-    "check": "node --check app.js && node --check netlify/functions/search-symbols.js && node --check netlify/functions/get-price.js && npm run test:math",
+    "check": "node --check app-core.js && node --check app-ui.js && node --check app.js && node --check sw.js && node --check netlify/functions/search-symbols.js && node --check netlify/functions/get-price.js && node --check netlify/functions/api-status.js && npm run test:math",
     "serve": "npx http-server . -p 8888",
     "test:math": "node tests/math-smoke-test.js"
   }

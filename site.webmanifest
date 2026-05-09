@@ -1,10 +1,25 @@
 {
   "name": "TaxSwitch Investment Calculator",
   "short_name": "TaxSwitch",
-  "description": "A mobile-first tax-aware stock rebalance calculator.",
+  "description": "A mobile-first tax-aware stock rebalance calculator with multi-lot support, partial sells, FX handling and portfolio rebalancing.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f4f7fb",
   "theme_color": "#101626",
-  "icons": []
+  "orientation": "any",
+  "categories": ["finance", "utilities"],
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
 }

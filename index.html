@@ -567,6 +567,9 @@
     <p class="noscript">This calculator needs JavaScript enabled to run the calculations.</p>
   </noscript>
 
+  <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
+  <script src="app-core.js" defer></script>
+  <script src="app-ui.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>
