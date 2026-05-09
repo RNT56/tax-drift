@@ -30,9 +30,30 @@ The app starts with blank position fields and can be used for any stock, ETF, in
 5. The functions directory is `netlify/functions`.
 6. No build command is required.
 
-### Environment variables for live market data
+### API keys and environment variables
 
-The app works without API keys, but live symbol search and latest price lookup need at least one market data provider key.
+The app works without API keys in anonymous/manual mode. Netlify Functions and premium backend features use the variables below when you run `npm run dev` or deploy to Netlify.
+
+| Variable | Required? | Used for | Notes |
+| --- | --- | --- | --- |
+| `TWELVE_DATA_API_KEY` | Optional | Live symbol search and latest prices | Good first market-data key. Current project already supports it. |
+| `FMP_API_KEY` | Optional | Live symbol search, latest prices, FX rates | Preferred for broader quote/FX coverage when available. |
+| `EODHD_API_KEY` | Optional | Live symbol search, latest prices, FX rates | Additional fallback provider. |
+| `ALPHA_VANTAGE_API_KEY` | Optional | Live symbol search fallback | Useful as another fallback; coverage and rate limits vary. |
+| `DATA_ENCRYPTION_KEY` | Required only for persistent premium backend storage | Encrypting workspace/import/report/alert Blobs | Not needed for local anonymous use. Required before relying on Netlify Blobs for user financial data. Use a long random value. |
+| `RESEND_API_KEY` | Optional | Email alerts | Not needed unless `email` alert delivery is enabled. In-app/local alerts work without it. |
+| `PREMIUM_API_TOKEN_HASHES` | Optional | Non-Identity API access/testing | Format is `sha256(token):userId`, comma-separated for multiple tokens. Netlify Identity is preferred for real users. |
+
+Developer/test-only variables:
+
+| Variable | Required? | Used for | Notes |
+| --- | --- | --- | --- |
+| `PREMIUM_TEST_USER_ID` | Test only | Mock premium auth | Only honored in test/mock auth contexts. |
+| `PREMIUM_AUTH_MODE=mock` | Test only | Enables mock auth mode | Do not use in production. |
+| `PREMIUM_TRUST_USER_HEADER=true` | Local/internal only | Trusts `x-user-id` style headers | Do not use in production unless the app is behind a trusted auth proxy. |
+| `SECURE_STORE_ALLOW_PLAINTEXT=true` | Local/dev only | Allows persistent store without encryption | Do not use for real user financial data. |
+
+You do not need all market-data keys. Configure more than one key for broader coverage, FX conversion coverage and failover when a provider cannot quote a symbol.
 
 Supported providers are tried in this order:
 
@@ -42,8 +63,6 @@ FMP_API_KEY=your_financial_modeling_prep_key
 EODHD_API_KEY=your_eodhd_key
 ALPHA_VANTAGE_API_KEY=your_alpha_vantage_key
 ```
-
-You do not need all keys. Configure more than one key for broader coverage, FX conversion coverage and failover when a provider cannot quote a symbol.
 
 Set it under:
 
@@ -211,6 +230,8 @@ npx netlify env:set FMP_API_KEY "<market data key>"
 npm run deploy:preview
 npm run deploy:prod
 ```
+
+For a free/local-only workflow, skip `DATA_ENCRYPTION_KEY` and `RESEND_API_KEY` until you are ready to persist signed-in user data or send email alerts from Netlify.
 
 Enable Netlify Identity in the site dashboard before testing signed-in workspace sync. Netlify Blobs is used as the database, so no separate DB is required.
 
