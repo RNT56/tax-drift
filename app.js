@@ -29,6 +29,7 @@ const els = {
   targetPriceTimeLabel: document.getElementById('targetPriceTimeLabel'),
   targetMarketDataStatus: document.getElementById('targetMarketDataStatus'),
   switchTargetReadiness: document.getElementById('switchTargetReadiness'),
+  switchAutoSizing: document.getElementById('switchAutoSizing'),
   shares: document.getElementById('shares'),
   currencyCode: document.getElementById('currencyCode'),
   currencyUnits: [...document.querySelectorAll('.currencyUnit')],
@@ -307,6 +308,15 @@ function showEmptyState() {
     els.switchMapping.innerHTML = '';
   }
   if (els.switchHeatmap) els.switchHeatmap.innerHTML = '';
+  if (els.switchAutoSizing) {
+    els.switchAutoSizing.innerHTML = `
+      <div class="switch-auto-sizing__header">
+        <span>Auto sizing</span>
+        <strong>Select target</strong>
+      </div>
+      <p>Enter the current holding first, then choose a switch stock. Tax-adjusted cash and buyable shares are calculated automatically.</p>
+    `;
+  }
   renderSwitchAssetData();
   if (els.taxBreakdownPanel) els.taxBreakdownPanel.hidden = true;
   if (els.fifoPanel) els.fifoPanel.hidden = true;
@@ -386,6 +396,9 @@ function instrumentDisplayName(instrument, fallback = 'Manual target') {
 function renderSwitchReadiness(input, switchOutput) {
   if (!els.switchTargetReadiness) return;
   els.switchTargetReadiness.classList.remove('is-ready', 'is-live');
+  if (els.useLatestTargetPriceBtn) {
+    els.useLatestTargetPriceBtn.hidden = Boolean(selectedTargetInstrument && switchOutput.hasTargetPrice);
+  }
   if (selectedTargetInstrument && switchOutput.hasTargetPrice) {
     els.switchTargetReadiness.textContent = 'Target priced';
     els.switchTargetReadiness.classList.add('is-live');
@@ -398,6 +411,67 @@ function renderSwitchReadiness(input, switchOutput) {
   } else {
     els.switchTargetReadiness.textContent = 'Manual target';
   }
+}
+
+function renderSwitchAutoSizing(input, output, switchOutput) {
+  if (!els.switchAutoSizing) return;
+  if (!hasCoreInputs(input) || !switchOutput.isValid) {
+    els.switchAutoSizing.innerHTML = `
+      <div class="switch-auto-sizing__header">
+        <span>Auto sizing</span>
+        <strong>Select target</strong>
+      </div>
+      <p>Enter the current holding first, then choose a switch stock. Tax-adjusted cash and buyable shares are calculated automatically.</p>
+    `;
+    return;
+  }
+
+  const money = (value) => formatCurrency(value, output.valueCurrency || input.currencyCode);
+  const targetName = instrumentDisplayName(selectedTargetInstrument, 'Switch stock');
+  const targetPriceText = switchOutput.hasTargetPrice ? money(switchOutput.targetPrice) : 'Needs price';
+  const targetSharesText = switchOutput.hasTargetPrice ? formatShares(switchOutput.targetShares) : 'Auto after price';
+  const expectedText = Number.isFinite(input.expectedNewReturn) ? formatPercent(input.expectedNewReturn) : 'Enter expected gain';
+  const sizingTone = switchOutput.hasTargetPrice ? 'Ready' : 'Awaiting price';
+  const sourceText = pendingTargetPrice
+    ? 'Live quote applied'
+    : (switchOutput.hasTargetPrice ? 'Manual price used' : 'Select a target or enter a manual price');
+
+  els.switchAutoSizing.innerHTML = `
+    <div class="switch-auto-sizing__header">
+      <span>Auto sizing</span>
+      <strong>${escapeHtml(sizingTone)}</strong>
+    </div>
+    <div class="switch-auto-sizing__lead">
+      <strong>${escapeHtml(targetName)}</strong>
+      <span>${escapeHtml(sourceText)}</span>
+    </div>
+    <div class="switch-auto-sizing__grid">
+      <div>
+        <span>Cash after tax</span>
+        <strong>${escapeHtml(money(output.cashAfter))}</strong>
+      </div>
+      <div>
+        <span>Investable cash</span>
+        <strong>${escapeHtml(money(switchOutput.investableCash))}</strong>
+      </div>
+      <div>
+        <span>Target price</span>
+        <strong>${escapeHtml(targetPriceText)}</strong>
+      </div>
+      <div>
+        <span>Shares buyable</span>
+        <strong>${escapeHtml(targetSharesText)}</strong>
+      </div>
+      <div>
+        <span>Residual cash</span>
+        <strong>${escapeHtml(money(switchOutput.residualCash))}</strong>
+      </div>
+      <div>
+        <span>Expected gain</span>
+        <strong>${escapeHtml(expectedText)}</strong>
+      </div>
+    </div>
+  `;
 }
 
 function renderSwitchTicket(input, output, switchOutput) {
@@ -757,6 +831,7 @@ function updateResults(input, output) {
     els.fvDifference.classList.remove('is-positive', 'is-negative');
   }
   renderSwitchReadiness(input, switchOutput);
+  renderSwitchAutoSizing(input, output, switchOutput);
   renderSwitchTicket(input, output, switchOutput);
   renderSwitchComparison(input, output, switchOutput);
   renderSwitchMapping(input, output, switchOutput);
@@ -1152,6 +1227,7 @@ function calculate() {
 
 function setMode(mode) {
   activeMode = mode;
+  document.body.classList.toggle('is-switch-mode', mode === 'switch');
   els.tabs.forEach((tab) => {
     const selected = tab.dataset.mode === mode;
     tab.classList.toggle('is-active', selected);
@@ -1782,6 +1858,9 @@ function selectTargetInstrument(item, options = {}) {
   pendingTargetPrice = null;
   latestTargetQuoteData = null;
   assetHistoryData.target = null;
+  if (!options.skipAutoPrice && els.switchTargetPrice) {
+    els.switchTargetPrice.value = '';
+  }
   if (els.selectedTargetInstrument) {
     els.selectedTargetInstrument.hidden = false;
     els.selectedTargetInstrument.classList.remove('is-loading-price', 'is-live-updated');
@@ -1961,7 +2040,7 @@ function clearInputs() {
   els.expectedNewReturn.value = '';
   if (els.switchTargetPrice) els.switchTargetPrice.value = '';
   if (els.switchBuyCost) els.switchBuyCost.value = '';
-  if (els.switchHorizonYears) els.switchHorizonYears.value = '';
+  if (els.switchHorizonYears) els.switchHorizonYears.value = '1';
   if (els.switchAllowFractional) els.switchAllowFractional.checked = true;
   els.includeTaxOnNew.checked = true;
   clearSelectedInstrument({ clearSearch: true });

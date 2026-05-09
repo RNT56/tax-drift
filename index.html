@@ -449,7 +449,7 @@
         </div>
 
         <div class="field-grid field-grid--scenario-prices">
-          <label class="field">
+          <label class="field field--rebuy-only">
             <span>Rebuy price</span>
             <input id="rebuyPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 110,00" aria-label="Rebuy price per share">
             <em><span class="currencyUnit">EUR</span> / share</em>
@@ -462,8 +462,8 @@
           </label>
 
           <label class="field field--wide">
-            <span>New return</span>
-            <input id="expectedNewReturn" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 12" aria-label="Expected new stock return">
+            <span>Expected new gain</span>
+            <input id="expectedNewReturn" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 12" aria-label="Expected switch stock gain">
             <em>%</em>
           </label>
         </div>
@@ -542,44 +542,45 @@
             <p id="targetMarketDataStatus" class="market-status">Select a target to fetch its current price.</p>
           </article>
 
-          <div class="field-grid field-grid--switch-target">
-            <label class="field">
-              <span>Target price</span>
-              <input id="switchTargetPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="auto or manual" aria-label="Target stock price per share">
-              <em><span class="currencyUnit">EUR</span> / share</em>
+          <div id="switchAutoSizing" class="switch-auto-sizing" aria-live="polite"></div>
+
+          <details class="switch-advanced-details">
+            <summary>Manual price / assumptions</summary>
+            <div class="field-grid field-grid--switch-target">
+              <label class="field">
+                <span>Target price</span>
+                <input id="switchTargetPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="auto or manual" aria-label="Target stock price per share">
+                <em><span class="currencyUnit">EUR</span> / share</em>
+              </label>
+
+              <label class="field">
+                <span>Buy cost</span>
+                <input id="switchBuyCost" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Additional buy cost for target stock">
+                <em><span class="currencyUnit">EUR</span></em>
+              </label>
+            </div>
+
+            <input id="switchHorizonYears" type="hidden" value="1">
+
+            <label class="switch-row switch-row--compact" for="switchAllowFractional">
+              <span>
+                <strong>Allow fractional target shares</strong>
+                <small>Disable to map cash to whole shares and residual cash.</small>
+              </span>
+              <input id="switchAllowFractional" type="checkbox" checked>
+              <i aria-hidden="true"></i>
             </label>
 
-            <label class="field">
-              <span>Buy cost</span>
-              <input id="switchBuyCost" type="text" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Additional buy cost for target stock">
-              <em><span class="currencyUnit">EUR</span></em>
+            <label class="switch-row switch-row--compact" for="includeTaxOnNew">
+              <span>
+                <strong>Tax future new-stock gains</strong>
+                <small>Only positive gains are reduced by tax.</small>
+              </span>
+              <input id="includeTaxOnNew" type="checkbox" checked>
+              <i aria-hidden="true"></i>
             </label>
-
-            <label class="field">
-              <span>Horizon</span>
-              <input id="switchHorizonYears" type="text" inputmode="decimal" autocomplete="off" placeholder="1" aria-label="Switch comparison horizon in years">
-              <em>years</em>
-            </label>
-          </div>
-
-          <label class="switch-row switch-row--compact" for="switchAllowFractional">
-            <span>
-              <strong>Allow fractional target shares</strong>
-              <small>Disable to map cash to whole shares and residual cash.</small>
-            </span>
-            <input id="switchAllowFractional" type="checkbox" checked>
-            <i aria-hidden="true"></i>
-          </label>
+          </details>
         </div>
-
-        <label class="switch-row" for="includeTaxOnNew">
-          <span>
-            <strong>Tax future new-stock gains</strong>
-            <small>Only positive gains are reduced by tax.</small>
-          </span>
-          <input id="includeTaxOnNew" type="checkbox" checked>
-          <i aria-hidden="true"></i>
-        </label>
 
         <!-- ── Opportunity hurdle modes ─────────────────────────── -->
         <details class="hurdle-details">
