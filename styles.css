@@ -684,6 +684,16 @@ input[type="search"]:focus-visible {
   border-bottom: 0;
 }
 
+.instrument-option:hover,
+.instrument-option[aria-selected="true"] {
+  background: rgba(16, 24, 40, 0.045);
+}
+
+.instrument-option:focus-visible {
+  outline: 0;
+  background: rgba(16, 24, 40, 0.06);
+}
+
 .instrument-option:active {
   transform: scale(0.99);
 }
@@ -1078,6 +1088,10 @@ input[type="search"]:focus-visible {
 
 .instrument-results--target {
   box-shadow: 0 12px 28px rgba(16, 24, 40, 0.08);
+}
+
+.instrument-filters--target {
+  margin-top: 8px;
 }
 
 .selected-instrument--target {

@@ -88,7 +88,7 @@
         <div class="instrument-search">
           <label class="field field--search">
             <span>Search symbol or name</span>
-            <input id="instrumentSearch" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. Apple, AAPL, DAX, MSCI World" aria-label="Search stock, ETF or index">
+            <input id="instrumentSearch" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. Apple, AAPL, DAX, MSCI World" aria-label="Search stock, ETF or index" aria-autocomplete="list" aria-controls="instrumentResults" aria-expanded="false">
             <em>optional</em>
           </label>
           <button id="clearInstrumentSearch" type="button" class="icon-button" aria-label="Clear instrument search">
@@ -471,8 +471,8 @@
         <div class="switch-target-panel" aria-labelledby="switchTargetTitle">
           <div class="switch-target-panel__header">
             <div>
-              <span>Switch target</span>
-              <h3 id="switchTargetTitle">To stock</h3>
+              <span>Switch stock</span>
+              <h3 id="switchTargetTitle">Target instrument</h3>
             </div>
             <strong id="switchTargetReadiness">Manual target</strong>
           </div>
@@ -480,12 +480,40 @@
           <div class="instrument-search instrument-search--target">
             <label class="field field--search">
               <span>Search target symbol or name</span>
-              <input id="targetInstrumentSearch" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. MSFT, ASML, IWDA" aria-label="Search target stock, ETF or index">
+              <input id="targetInstrumentSearch" type="search" autocomplete="off" spellcheck="false" placeholder="e.g. Apple, AAPL, MSFT, IWDA" aria-label="Search switch target stock, ETF or index" aria-autocomplete="list" aria-controls="targetInstrumentResults" aria-expanded="false">
               <em>to buy</em>
             </label>
             <button id="clearTargetInstrumentSearch" type="button" class="icon-button" aria-label="Clear target instrument search">
               <span class="icon-x" aria-hidden="true"></span>
             </button>
+          </div>
+
+          <div class="instrument-filters instrument-filters--target" aria-label="Switch target filters">
+            <label class="field field--compact">
+              <span>Asset type</span>
+              <select id="targetAssetTypeFilter" aria-label="Filter switch target by asset type">
+                <option value="all">All assets</option>
+                <option value="stock">Stocks</option>
+                <option value="etf">ETFs</option>
+                <option value="index">Indices</option>
+                <option value="crypto">Crypto</option>
+                <option value="fx">FX</option>
+              </select>
+            </label>
+            <label class="field field--compact">
+              <span>Country</span>
+              <select id="targetAssetCountryFilter" aria-label="Filter switch target by country">
+                <option value="all">All countries</option>
+                <option value="united states">United States</option>
+                <option value="germany">Germany</option>
+                <option value="netherlands">Netherlands</option>
+                <option value="france">France</option>
+                <option value="switzerland">Switzerland</option>
+                <option value="united kingdom">United Kingdom</option>
+                <option value="japan">Japan</option>
+                <option value="hong kong">Hong Kong</option>
+              </select>
+            </label>
           </div>
 
           <div id="targetInstrumentResults" class="instrument-results instrument-results--target" role="listbox" aria-label="Target instrument search results" hidden></div>

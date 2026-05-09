@@ -13,6 +13,8 @@ const els = {
   clearInstrumentBtn: document.getElementById('clearInstrumentBtn'),
   marketDataStatus: document.getElementById('marketDataStatus'),
   targetInstrumentSearch: document.getElementById('targetInstrumentSearch'),
+  targetAssetTypeFilter: document.getElementById('targetAssetTypeFilter'),
+  targetAssetCountryFilter: document.getElementById('targetAssetCountryFilter'),
   clearTargetInstrumentSearch: document.getElementById('clearTargetInstrumentSearch'),
   targetInstrumentResults: document.getElementById('targetInstrumentResults'),
   selectedTargetInstrument: document.getElementById('selectedTargetInstrument'),
@@ -111,6 +113,10 @@ let searchTimer = null;
 let targetSearchTimer = null;
 let searchAbort = null;
 let targetSearchAbort = null;
+let instrumentResultItems = [];
+let targetInstrumentResultItems = [];
+let activeInstrumentResultIndex = -1;
+let activeTargetInstrumentResultIndex = -1;
 let autoPriceTimer = null;
 let targetAutoPriceTimer = null;
 let priceAbort = null;
@@ -1243,6 +1249,13 @@ function getAssetFilters() {
   };
 }
 
+function getTargetAssetFilters() {
+  return {
+    type: els.targetAssetTypeFilter?.value || 'all',
+    country: els.targetAssetCountryFilter?.value || 'all'
+  };
+}
+
 function assetMatchesFilter(item, filters = getAssetFilters()) {
   const type = String(item?.type || '').toLowerCase();
   const country = String(item?.country || '').toLowerCase();
@@ -1261,15 +1274,111 @@ function assetMatchesFilter(item, filters = getAssetFilters()) {
   return typeOk && countryOk;
 }
 
-function filteredLocalSearchSymbols(query, limit = 10) {
-  const filters = getAssetFilters();
+function filteredLocalSearchSymbols(query, limit = 10, filters = getAssetFilters()) {
   return localSearchSymbols(query, Math.min(limit * 3, 60))
     .filter(item => assetMatchesFilter(item, filters))
     .slice(0, limit);
 }
 
+function setSearchExpanded(input, expanded) {
+  if (!input) return;
+  input.setAttribute('aria-expanded', String(Boolean(expanded)));
+  if (!expanded) input.removeAttribute('aria-activedescendant');
+}
+
+function updateSearchActiveState(container, input, activeIndex) {
+  if (!container) return;
+  const options = [...container.querySelectorAll('.instrument-option[role="option"]')];
+  options.forEach((option, index) => {
+    const isActive = index === activeIndex;
+    option.setAttribute('aria-selected', String(isActive));
+    if (isActive) {
+      input?.setAttribute('aria-activedescendant', option.id);
+      option.scrollIntoView({ block: 'nearest' });
+    }
+  });
+  if (activeIndex < 0) input?.removeAttribute('aria-activedescendant');
+}
+
+function setInstrumentSearchHidden(hidden) {
+  if (!els.instrumentResults) return;
+  els.instrumentResults.hidden = Boolean(hidden);
+  setSearchExpanded(els.instrumentSearch, !hidden);
+  if (hidden) {
+    activeInstrumentResultIndex = -1;
+    updateSearchActiveState(els.instrumentResults, els.instrumentSearch, activeInstrumentResultIndex);
+  }
+}
+
+function setTargetSearchHidden(hidden) {
+  if (!els.targetInstrumentResults) return;
+  els.targetInstrumentResults.hidden = Boolean(hidden);
+  setSearchExpanded(els.targetInstrumentSearch, !hidden);
+  if (hidden) {
+    activeTargetInstrumentResultIndex = -1;
+    updateSearchActiveState(els.targetInstrumentResults, els.targetInstrumentSearch, activeTargetInstrumentResultIndex);
+  }
+}
+
+function moveSearchActiveResult(kind, delta) {
+  const isTarget = kind === 'target';
+  const items = isTarget ? targetInstrumentResultItems : instrumentResultItems;
+  if (!items.length) return;
+  const current = isTarget ? activeTargetInstrumentResultIndex : activeInstrumentResultIndex;
+  const next = current < 0
+    ? (delta > 0 ? 0 : items.length - 1)
+    : (current + delta + items.length) % items.length;
+  if (isTarget) {
+    activeTargetInstrumentResultIndex = next;
+    updateSearchActiveState(els.targetInstrumentResults, els.targetInstrumentSearch, next);
+  } else {
+    activeInstrumentResultIndex = next;
+    updateSearchActiveState(els.instrumentResults, els.instrumentSearch, next);
+  }
+}
+
+function selectActiveSearchResult(kind) {
+  const isTarget = kind === 'target';
+  const items = isTarget ? targetInstrumentResultItems : instrumentResultItems;
+  const activeIndex = isTarget ? activeTargetInstrumentResultIndex : activeInstrumentResultIndex;
+  const item = items[activeIndex >= 0 ? activeIndex : 0];
+  if (!item) return false;
+  if (isTarget) selectTargetInstrument(item);
+  else selectInstrument(item);
+  return true;
+}
+
+function handleInstrumentSearchKeydown(event, kind) {
+  const isTarget = kind === 'target';
+  const input = isTarget ? els.targetInstrumentSearch : els.instrumentSearch;
+  const container = isTarget ? els.targetInstrumentResults : els.instrumentResults;
+  const items = isTarget ? targetInstrumentResultItems : instrumentResultItems;
+  if (!input || !container) return;
+
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    if (container.hidden && input.value.trim().length >= 2) {
+      isTarget ? queueTargetSymbolSearch() : queueSymbolSearch();
+    }
+    moveSearchActiveResult(kind, event.key === 'ArrowDown' ? 1 : -1);
+    return;
+  }
+
+  if (event.key === 'Enter' && !container.hidden && items.length) {
+    event.preventDefault();
+    selectActiveSearchResult(kind);
+    return;
+  }
+
+  if (event.key === 'Escape') {
+    isTarget ? setTargetSearchHidden(true) : setInstrumentSearchHidden(true);
+  }
+}
+
 function renderInstrumentResults(results, sourceLabel = '') {
   els.instrumentResults.innerHTML = '';
+  instrumentResultItems = results.slice();
+  activeInstrumentResultIndex = results.length ? 0 : -1;
 
   if (!results.length) {
     const empty = document.createElement('div');
@@ -1277,7 +1386,7 @@ function renderInstrumentResults(results, sourceLabel = '') {
     empty.setAttribute('aria-disabled', 'true');
     empty.innerHTML = '<span class="asset-avatar">?</span><div class="instrument-option__text"><strong>No matches found</strong><span>Try a symbol, company name, ETF name or index.</span></div><code>—</code>';
     els.instrumentResults.appendChild(empty);
-    els.instrumentResults.hidden = false;
+    setInstrumentSearchHidden(false);
     return;
   }
 
@@ -1285,8 +1394,9 @@ function renderInstrumentResults(results, sourceLabel = '') {
     const option = document.createElement('button');
     option.type = 'button';
     option.className = 'instrument-option';
+    option.id = `instrument-option-${index}`;
     option.setAttribute('role', 'option');
-    option.setAttribute('aria-selected', 'false');
+    option.setAttribute('aria-selected', String(index === activeInstrumentResultIndex));
     option.dataset.index = String(index);
 
     const avatar = document.createElement('span');
@@ -1309,17 +1419,20 @@ function renderInstrumentResults(results, sourceLabel = '') {
     els.instrumentResults.appendChild(option);
   });
 
-  els.instrumentResults.hidden = false;
+  setInstrumentSearchHidden(false);
+  updateSearchActiveState(els.instrumentResults, els.instrumentSearch, activeInstrumentResultIndex);
 }
 
 function renderInstrumentLoading(text) {
   els.instrumentResults.innerHTML = '';
+  instrumentResultItems = [];
+  activeInstrumentResultIndex = -1;
   const row = document.createElement('div');
   row.className = 'instrument-option';
   row.setAttribute('aria-disabled', 'true');
   row.innerHTML = `<span class="asset-avatar">…</span><div class="instrument-option__text"><strong>${text}</strong><span>Searching available instruments…</span></div><code>API</code>`;
   els.instrumentResults.appendChild(row);
-  els.instrumentResults.hidden = false;
+  setInstrumentSearchHidden(false);
 }
 
 function instrumentResultKey(item) {
@@ -1348,7 +1461,8 @@ function mergeInstrumentResults(primary = [], secondary = [], limit = 10) {
 async function searchSymbols(query) {
   const q = String(query || '').trim();
   if (q.length < 2) {
-    els.instrumentResults.hidden = true;
+    instrumentResultItems = [];
+    setInstrumentSearchHidden(true);
     return;
   }
 
@@ -1396,7 +1510,7 @@ function selectInstrument(item, options = {}) {
   assetHistoryData.current = null;
   els.selectedInstrument.hidden = false;
   els.selectedInstrument.classList.remove('is-loading-price', 'is-live-updated');
-  els.instrumentResults.hidden = true;
+  setInstrumentSearchHidden(true);
   els.instrumentSearch.value = item.name || item.symbol || '';
   els.selectedAvatar.textContent = instrumentInitials(item);
   els.selectedName.textContent = item.name || item.symbol || 'Selected instrument';
@@ -1428,7 +1542,7 @@ function clearSelectedInstrument({ clearSearch = true } = {}) {
   els.selectedInstrument.hidden = true;
   els.selectedInstrument.classList.remove('is-loading-price', 'is-live-updated');
   els.selectedInstrument.removeAttribute('aria-busy');
-  els.instrumentResults.hidden = true;
+  setInstrumentSearchHidden(true);
   if (els.refreshPriceBtn) els.refreshPriceBtn.hidden = true;
   if (ui?.priceTimestamp) ui.priceTimestamp.hidden = true;
   if (clearSearch) els.instrumentSearch.value = '';
@@ -1555,6 +1669,8 @@ function setTargetPriceLoading(isLoading, label = 'Apply latest') {
 function renderTargetInstrumentResults(results, sourceLabel = '') {
   if (!els.targetInstrumentResults) return;
   els.targetInstrumentResults.innerHTML = '';
+  targetInstrumentResultItems = results.slice();
+  activeTargetInstrumentResultIndex = results.length ? 0 : -1;
 
   if (!results.length) {
     const empty = document.createElement('div');
@@ -1562,7 +1678,7 @@ function renderTargetInstrumentResults(results, sourceLabel = '') {
     empty.setAttribute('aria-disabled', 'true');
     empty.innerHTML = '<span class="asset-avatar">?</span><div class="instrument-option__text"><strong>No matches found</strong><span>Try another target symbol, company, ETF or index.</span></div><code>—</code>';
     els.targetInstrumentResults.appendChild(empty);
-    els.targetInstrumentResults.hidden = false;
+    setTargetSearchHidden(false);
     return;
   }
 
@@ -1570,8 +1686,9 @@ function renderTargetInstrumentResults(results, sourceLabel = '') {
     const option = document.createElement('button');
     option.type = 'button';
     option.className = 'instrument-option';
+    option.id = `target-instrument-option-${index}`;
     option.setAttribute('role', 'option');
-    option.setAttribute('aria-selected', 'false');
+    option.setAttribute('aria-selected', String(index === activeTargetInstrumentResultIndex));
     option.dataset.index = String(index);
 
     const avatar = document.createElement('span');
@@ -1594,31 +1711,35 @@ function renderTargetInstrumentResults(results, sourceLabel = '') {
     els.targetInstrumentResults.appendChild(option);
   });
 
-  els.targetInstrumentResults.hidden = false;
+  setTargetSearchHidden(false);
+  updateSearchActiveState(els.targetInstrumentResults, els.targetInstrumentSearch, activeTargetInstrumentResultIndex);
 }
 
 function renderTargetInstrumentLoading(text) {
   if (!els.targetInstrumentResults) return;
   els.targetInstrumentResults.innerHTML = '';
+  targetInstrumentResultItems = [];
+  activeTargetInstrumentResultIndex = -1;
   const row = document.createElement('div');
   row.className = 'instrument-option';
   row.setAttribute('aria-disabled', 'true');
   row.innerHTML = `<span class="asset-avatar">…</span><div class="instrument-option__text"><strong>${text}</strong><span>Searching target instruments…</span></div><code>API</code>`;
   els.targetInstrumentResults.appendChild(row);
-  els.targetInstrumentResults.hidden = false;
+  setTargetSearchHidden(false);
 }
 
 async function searchTargetSymbols(query) {
   const q = String(query || '').trim();
   if (q.length < 2) {
-    if (els.targetInstrumentResults) els.targetInstrumentResults.hidden = true;
+    targetInstrumentResultItems = [];
+    setTargetSearchHidden(true);
     return;
   }
 
   if (targetSearchAbort) targetSearchAbort.abort();
   targetSearchAbort = new AbortController();
   renderTargetInstrumentLoading('Searching');
-  const filters = getAssetFilters();
+  const filters = getTargetAssetFilters();
   const params = new URLSearchParams({
     q,
     type: filters.type,
@@ -1633,12 +1754,12 @@ async function searchTargetSymbols(query) {
     if (!response.ok) throw new Error(`Search failed with ${response.status}`);
     const payload = await response.json();
     const apiResults = Array.isArray(payload.results) ? payload.results : [];
-    const fallbackResults = filteredLocalSearchSymbols(q);
+    const fallbackResults = filteredLocalSearchSymbols(q, 10, filters);
     const results = apiResults.length ? mergeInstrumentResults(fallbackResults, apiResults) : fallbackResults;
     renderTargetInstrumentResults(results, payload.source || 'search');
   } catch (error) {
     if (error.name === 'AbortError') return;
-    renderTargetInstrumentResults(filteredLocalSearchSymbols(q), 'local');
+    renderTargetInstrumentResults(filteredLocalSearchSymbols(q, 10, filters), 'local');
   }
 }
 
@@ -1652,6 +1773,10 @@ function queueTargetAutoPriceFetch() {
   targetAutoPriceTimer = window.setTimeout(() => useLatestTargetPrice({ auto: true }), 90);
 }
 
+function activateSwitchStockMode() {
+  if (activeMode !== 'switch') setMode('switch');
+}
+
 function selectTargetInstrument(item, options = {}) {
   selectedTargetInstrument = { ...item };
   pendingTargetPrice = null;
@@ -1661,7 +1786,7 @@ function selectTargetInstrument(item, options = {}) {
     els.selectedTargetInstrument.hidden = false;
     els.selectedTargetInstrument.classList.remove('is-loading-price', 'is-live-updated');
   }
-  if (els.targetInstrumentResults) els.targetInstrumentResults.hidden = true;
+  setTargetSearchHidden(true);
   if (els.targetInstrumentSearch) els.targetInstrumentSearch.value = item.name || item.symbol || '';
   if (els.selectedTargetAvatar) els.selectedTargetAvatar.textContent = instrumentInitials(item);
   if (els.selectedTargetName) els.selectedTargetName.textContent = item.name || item.symbol || 'Selected target';
@@ -1679,6 +1804,7 @@ function selectTargetInstrument(item, options = {}) {
   renderSwitchAssetData();
   drawAssetPerformanceChart();
   queueAssetHistoryRefresh();
+  activateSwitchStockMode();
   calculate();
 }
 
@@ -1695,7 +1821,7 @@ function clearSelectedTargetInstrument({ clearSearch = true, clearPrice = false 
     els.selectedTargetInstrument.classList.remove('is-loading-price', 'is-live-updated');
     els.selectedTargetInstrument.removeAttribute('aria-busy');
   }
-  if (els.targetInstrumentResults) els.targetInstrumentResults.hidden = true;
+  setTargetSearchHidden(true);
   if (els.refreshTargetPriceBtn) els.refreshTargetPriceBtn.hidden = true;
   if (els.targetPriceTimestamp) els.targetPriceTimestamp.hidden = true;
   if (clearSearch && els.targetInstrumentSearch) els.targetInstrumentSearch.value = '';
@@ -1885,6 +2011,11 @@ function clearInputs() {
     if (ui.workspaceName) ui.workspaceName.value = '';
     if (ui.priceTimestamp) ui.priceTimestamp.hidden = true;
   }
+  [els.targetAssetTypeFilter, els.targetAssetCountryFilter].filter(Boolean).forEach((filter) => {
+    filter.value = 'all';
+    filter.dispatchEvent(new Event('input', { bubbles: true }));
+    filter.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   if (typeof decisionScenarioCases !== 'undefined') decisionScenarioCases = [];
   if (typeof researchMemos !== 'undefined') researchMemos = [];
   if (typeof lastDecisionResult !== 'undefined') lastDecisionResult = null;
@@ -1914,7 +2045,10 @@ function clearInputs() {
 });
 
 els.currentPrice.addEventListener('input', markManualPriceOverride);
-if (els.switchTargetPrice) els.switchTargetPrice.addEventListener('input', markManualTargetPriceOverride);
+if (els.switchTargetPrice) {
+  els.switchTargetPrice.addEventListener('input', markManualTargetPriceOverride);
+  els.switchTargetPrice.addEventListener('input', activateSwitchStockMode);
+}
 
 els.currencyCode.addEventListener('blur', () => {
   setCurrency(els.currencyCode.value);
@@ -1923,12 +2057,14 @@ els.currencyCode.addEventListener('blur', () => {
 });
 
 els.instrumentSearch.addEventListener('input', queueSymbolSearch);
+els.instrumentSearch.addEventListener('keydown', (event) => handleInstrumentSearchKeydown(event, 'current'));
 els.instrumentSearch.addEventListener('focus', () => {
   if (els.instrumentSearch.value.trim().length >= 2) queueSymbolSearch();
 });
 els.clearInstrumentSearch.addEventListener('click', () => {
   els.instrumentSearch.value = '';
-  els.instrumentResults.hidden = true;
+  instrumentResultItems = [];
+  setInstrumentSearchHidden(true);
 });
 [
   els.assetTypeFilter,
@@ -1944,19 +2080,22 @@ if (els.refreshPriceBtn) els.refreshPriceBtn.addEventListener('click', useLatest
 
 if (els.targetInstrumentSearch) {
   els.targetInstrumentSearch.addEventListener('input', queueTargetSymbolSearch);
+  els.targetInstrumentSearch.addEventListener('keydown', (event) => handleInstrumentSearchKeydown(event, 'target'));
   els.targetInstrumentSearch.addEventListener('focus', () => {
+    activateSwitchStockMode();
     if (els.targetInstrumentSearch.value.trim().length >= 2) queueTargetSymbolSearch();
   });
 }
 if (els.clearTargetInstrumentSearch) {
   els.clearTargetInstrumentSearch.addEventListener('click', () => {
     els.targetInstrumentSearch.value = '';
-    els.targetInstrumentResults.hidden = true;
+    targetInstrumentResultItems = [];
+    setTargetSearchHidden(true);
   });
 }
 [
-  els.assetTypeFilter,
-  els.assetCountryFilter
+  els.targetAssetTypeFilter,
+  els.targetAssetCountryFilter
 ].filter(Boolean).forEach((filter) => {
   filter.addEventListener('change', () => {
     if (els.targetInstrumentSearch?.value.trim().length >= 2) queueTargetSymbolSearch();
@@ -1999,10 +2138,10 @@ document.addEventListener('focusin', queueDockVisibility);
 document.addEventListener('focusout', queueDockVisibility);
 document.addEventListener('click', (event) => {
   if (!event.target.closest('.panel--instrument')) {
-    els.instrumentResults.hidden = true;
+    setInstrumentSearchHidden(true);
   }
   if (!event.target.closest('.switch-target-panel') && els.targetInstrumentResults) {
-    els.targetInstrumentResults.hidden = true;
+    setTargetSearchHidden(true);
   }
 });
 
