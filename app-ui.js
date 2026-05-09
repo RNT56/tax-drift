@@ -14,6 +14,7 @@ const ui = {
   targetPriceTimestamp: document.getElementById('targetPriceTimestamp'),
   targetPriceSourceLabel: document.getElementById('targetPriceSourceLabel'),
   targetPriceTimeLabel: document.getElementById('targetPriceTimeLabel'),
+  switchBuyPrice: document.getElementById('switchBuyPrice'),
   switchTargetPrice: document.getElementById('switchTargetPrice'),
   switchBuyCost: document.getElementById('switchBuyCost'),
   switchHorizonYears: document.getElementById('switchHorizonYears'),
@@ -497,6 +498,7 @@ function applyWorkspaceSnapshot(workspace) {
     rebuyPrice: scenario.rebuyPrice,
     expectedOldReturn: Number.isFinite(scenario.expectedOldReturn) ? scenario.expectedOldReturn * 100 : undefined,
     expectedNewReturn: Number.isFinite(scenario.expectedNewReturn) ? scenario.expectedNewReturn * 100 : undefined,
+    switchBuyPrice: scenario.switchBuyPrice,
     switchTargetPrice: scenario.switchTargetPrice,
     switchBuyCost: scenario.switchBuyCost,
     switchHorizonYears: scenario.switchHorizonYears,
@@ -1530,7 +1532,7 @@ const LS_KEY = 'taxswitch_inputs';
 function saveToLocalStorage() {
   try {
     const data = {};
-    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','targetAssetTypeFilter','targetAssetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis'].forEach(id => {
+    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchBuyPrice','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','targetAssetTypeFilter','targetAssetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis'].forEach(id => {
       const el = document.getElementById(id);
       if (el && el.value) data[id] = el.value;
     });
@@ -1555,7 +1557,7 @@ function restoreFromLocalStorage() {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return false;
     const data = JSON.parse(raw);
-    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','targetAssetTypeFilter','targetAssetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis'].forEach(id => {
+    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchBuyPrice','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','targetAssetTypeFilter','targetAssetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis'].forEach(id => {
       const el = document.getElementById(id);
       if (el && data[id]) el.value = data[id];
     });

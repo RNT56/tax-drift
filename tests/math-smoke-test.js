@@ -192,7 +192,8 @@ function close(actual, expected, epsilon = 1e-6) {
     expectedNewReturn: 0.20,
     includeTaxOnNew: true,
     sellFraction: 1,
-    switchTargetPrice: 300,
+    switchBuyPrice: 300,
+    switchTargetPrice: 360,
     switchBuyCost: 10,
     switchAllowFractional: false,
     taxProfile: { mode: 'flat' }
@@ -201,6 +202,9 @@ function close(actual, expected, epsilon = 1e-6) {
   const sw = TaxCore.calculateSwitchUpgrade(input, output);
   close(output.cashAfter, 868.125);
   close(sw.investableCash, 858.125);
+  close(sw.buyPrice, 300);
+  close(sw.targetPrice, 360);
+  close(sw.expectedReturn, 0.20);
   close(sw.targetShares, 2);
   close(sw.targetInvested, 600);
   close(sw.residualCash, 258.125);
@@ -220,7 +224,8 @@ function close(actual, expected, epsilon = 1e-6) {
     expectedNewReturn: 0.12,
     includeTaxOnNew: false,
     sellFraction: 0.5,
-    switchTargetPrice: 40,
+    switchBuyPrice: 40,
+    switchTargetPrice: 44.8,
     switchBuyCost: 4,
     switchAllowFractional: true,
     taxProfile: { mode: 'flat' }
@@ -231,6 +236,8 @@ function close(actual, expected, epsilon = 1e-6) {
   close(output.taxDue, 50);
   close(output.cashAfter, 544);
   close(sw.investableCash, 540);
+  close(sw.buyPrice, 40);
+  close(sw.projectedTargetPrice, 44.8);
   close(sw.targetShares, 13.5);
   close(sw.targetInvested, 540);
   close(sw.residualCash, 0);
@@ -238,4 +245,35 @@ function close(actual, expected, epsilon = 1e-6) {
   close(sw.futureValueNew, 540 * 1.12);
 }
 
-console.log('Math smoke tests passed. (12 tests)');
+// ── Test 13: Switch target sell price derives expected return, but not share sizing ──
+{
+  const input = {
+    shares: 10,
+    buyPrice: 100,
+    currentPrice: 150,
+    taxRate: 0.25,
+    transactionCost: 0,
+    expectedOldReturn: 0,
+    includeTaxOnNew: true,
+    sellFraction: 1,
+    switchBuyPrice: 50,
+    switchTargetPrice: 75,
+    switchBuyCost: 0,
+    switchAllowFractional: true,
+    taxProfile: { mode: 'flat' }
+  };
+  const output = TaxCore.calculateValues(input);
+  const sw = TaxCore.calculateSwitchUpgrade(input, output);
+  close(output.cashAfter, 1375);
+  close(sw.expectedReturn, 0.5);
+  close(sw.targetShares, 27.5);
+  close(sw.targetInvested, 1375);
+  close(sw.futureValueNew, 1375 * (1 + 0.5 * (1 - 0.25)));
+
+  const higherTarget = TaxCore.calculateSwitchUpgrade({ ...input, switchTargetPrice: 100 }, output);
+  close(higherTarget.expectedReturn, 1);
+  close(higherTarget.targetShares, sw.targetShares);
+  close(higherTarget.targetInvested, sw.targetInvested);
+}
+
+console.log('Math smoke tests passed. (13 tests)');

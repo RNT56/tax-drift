@@ -30,6 +30,8 @@ const els = {
   targetMarketDataStatus: document.getElementById('targetMarketDataStatus'),
   switchTargetReadiness: document.getElementById('switchTargetReadiness'),
   switchAutoSizing: document.getElementById('switchAutoSizing'),
+  switchTargetPanel: document.querySelector('.switch-target-panel'),
+  switchOnlyFields: [...document.querySelectorAll('.field--switch-only')],
   shares: document.getElementById('shares'),
   currencyCode: document.getElementById('currencyCode'),
   currencyUnits: [...document.querySelectorAll('.currencyUnit')],
@@ -40,6 +42,7 @@ const els = {
   rebuyPrice: document.getElementById('rebuyPrice'),
   expectedOldReturn: document.getElementById('expectedOldReturn'),
   expectedNewReturn: document.getElementById('expectedNewReturn'),
+  switchBuyPrice: document.getElementById('switchBuyPrice'),
   switchTargetPrice: document.getElementById('switchTargetPrice'),
   switchBuyCost: document.getElementById('switchBuyCost'),
   switchHorizonYears: document.getElementById('switchHorizonYears'),
@@ -124,6 +127,7 @@ let priceAbort = null;
 let targetPriceAbort = null;
 let applyingMarketPrice = false;
 let applyingTargetMarketPrice = false;
+let switchProjectionSource = null;
 let latestQuoteData = null;
 let latestTargetQuoteData = null;
 let assetHistoryRange = '1Y';
@@ -156,7 +160,8 @@ function getInputs() {
   const expectedOldParsed = parseLocaleNumber(els.expectedOldReturn.value);
   const expectedOldReturn = Number.isFinite(expectedOldParsed) ? clampReturn(expectedOldParsed / 100) : 0;
   const expectedNewReturnParsed = parseLocaleNumber(els.expectedNewReturn.value);
-  const expectedNewReturn = Number.isFinite(expectedNewReturnParsed) ? clampReturn(expectedNewReturnParsed / 100) : NaN;
+  let expectedNewReturn = Number.isFinite(expectedNewReturnParsed) ? clampReturn(expectedNewReturnParsed / 100) : NaN;
+  const switchBuyPriceParsed = parseLocaleNumber(els.switchBuyPrice?.value);
   const switchTargetPriceParsed = parseLocaleNumber(els.switchTargetPrice?.value);
   const switchBuyCostParsed = parseLocaleNumber(els.switchBuyCost?.value);
   const switchHorizonYearsParsed = parseLocaleNumber(els.switchHorizonYears?.value);
@@ -219,12 +224,16 @@ function getInputs() {
     newVolatility: Number.isFinite(newVolatilityVal) ? Math.max(newVolatilityVal / 100, 0) : NaN,
     portfolioVolatility: Number.isFinite(portfolioVolatilityVal) ? Math.max(portfolioVolatilityVal / 100, 0) : NaN,
     correlationToPortfolio: Number.isFinite(correlationToPortfolioVal) ? Math.min(Math.max(correlationToPortfolioVal / 100, -1), 1) : NaN,
+    switchBuyPrice: Number.isFinite(switchBuyPriceParsed) ? Math.max(switchBuyPriceParsed, 0) : NaN,
     switchTargetPrice: Number.isFinite(switchTargetPriceParsed) ? Math.max(switchTargetPriceParsed, 0) : NaN,
     switchBuyCost: Number.isFinite(switchBuyCostParsed) ? Math.max(switchBuyCostParsed, 0) : 0,
     switchHorizonYears: Number.isFinite(switchHorizonYearsParsed) && switchHorizonYearsParsed > 0 ? switchHorizonYearsParsed : 1,
     switchAllowFractional: els.switchAllowFractional?.checked !== false,
     switchTargetInstrument: selectedTargetInstrument ? { ...selectedTargetInstrument } : null
   };
+  if (!Number.isFinite(input.expectedNewReturn) && input.switchBuyPrice > 0 && input.switchTargetPrice > 0) {
+    input.expectedNewReturn = clampReturn(input.switchTargetPrice / input.switchBuyPrice - 1);
+  }
   if (typeof getActiveLotSaleResult === 'function') {
     input.lotSaleResult = getActiveLotSaleResult(input);
   }
@@ -397,19 +406,22 @@ function renderSwitchReadiness(input, switchOutput) {
   if (!els.switchTargetReadiness) return;
   els.switchTargetReadiness.classList.remove('is-ready', 'is-live');
   if (els.useLatestTargetPriceBtn) {
-    els.useLatestTargetPriceBtn.hidden = Boolean(selectedTargetInstrument && switchOutput.hasTargetPrice);
+    els.useLatestTargetPriceBtn.hidden = Boolean(selectedTargetInstrument && switchOutput.hasBuyPrice);
   }
-  if (selectedTargetInstrument && switchOutput.hasTargetPrice) {
-    els.switchTargetReadiness.textContent = 'Target priced';
+  if (selectedTargetInstrument && switchOutput.hasBuyPrice && switchOutput.hasProjection) {
+    els.switchTargetReadiness.textContent = 'Ready';
     els.switchTargetReadiness.classList.add('is-live');
-  } else if (switchOutput.hasTargetPrice) {
-    els.switchTargetReadiness.textContent = 'Manual price';
+  } else if (switchOutput.hasBuyPrice && switchOutput.hasProjection) {
+    els.switchTargetReadiness.textContent = 'Manual ready';
+    els.switchTargetReadiness.classList.add('is-live');
+  } else if (switchOutput.hasBuyPrice) {
+    els.switchTargetReadiness.textContent = 'Needs target';
     els.switchTargetReadiness.classList.add('is-ready');
   } else if (selectedTargetInstrument) {
-    els.switchTargetReadiness.textContent = 'Target selected';
+    els.switchTargetReadiness.textContent = 'Needs buy price';
     els.switchTargetReadiness.classList.add('is-ready');
   } else {
-    els.switchTargetReadiness.textContent = 'Manual target';
+    els.switchTargetReadiness.textContent = 'Switch setup';
   }
 }
 
@@ -428,13 +440,16 @@ function renderSwitchAutoSizing(input, output, switchOutput) {
 
   const money = (value) => formatCurrency(value, output.valueCurrency || input.currencyCode);
   const targetName = instrumentDisplayName(selectedTargetInstrument, 'Switch stock');
-  const targetPriceText = switchOutput.hasTargetPrice ? money(switchOutput.targetPrice) : 'Needs price';
-  const targetSharesText = switchOutput.hasTargetPrice ? formatShares(switchOutput.targetShares) : 'Auto after price';
-  const expectedText = Number.isFinite(input.expectedNewReturn) ? formatPercent(input.expectedNewReturn) : 'Enter expected gain';
-  const sizingTone = switchOutput.hasTargetPrice ? 'Ready' : 'Awaiting price';
+  const buyPriceText = switchOutput.hasBuyPrice ? money(switchOutput.buyPrice) : 'Needs buy price';
+  const targetPriceText = Number.isFinite(switchOutput.projectedTargetPrice) ? money(switchOutput.projectedTargetPrice) : 'Enter target or gain';
+  const targetSharesText = switchOutput.hasBuyPrice ? formatShares(switchOutput.targetShares) : 'After buy price';
+  const expectedText = switchOutput.hasProjection ? formatPercent(switchOutput.expectedReturn) : 'Enter target or gain';
+  const sizingTone = switchOutput.hasBuyPrice
+    ? (switchOutput.hasProjection ? 'Ready' : 'Needs target')
+    : 'Awaiting buy price';
   const sourceText = pendingTargetPrice
-    ? 'Live quote applied'
-    : (switchOutput.hasTargetPrice ? 'Manual price used' : 'Select a target or enter a manual price');
+    ? 'Live buy price applied'
+    : (switchOutput.hasBuyPrice ? 'Manual buy price used' : 'Select a target or enter a current buy price');
 
   els.switchAutoSizing.innerHTML = `
     <div class="switch-auto-sizing__header">
@@ -455,8 +470,8 @@ function renderSwitchAutoSizing(input, output, switchOutput) {
         <strong>${escapeHtml(money(switchOutput.investableCash))}</strong>
       </div>
       <div>
-        <span>Target price</span>
-        <strong>${escapeHtml(targetPriceText)}</strong>
+        <span>Current buy price</span>
+        <strong>${escapeHtml(buyPriceText)}</strong>
       </div>
       <div>
         <span>Shares buyable</span>
@@ -465,6 +480,10 @@ function renderSwitchAutoSizing(input, output, switchOutput) {
       <div>
         <span>Residual cash</span>
         <strong>${escapeHtml(money(switchOutput.residualCash))}</strong>
+      </div>
+      <div>
+        <span>Target price</span>
+        <strong>${escapeHtml(targetPriceText)}</strong>
       </div>
       <div>
         <span>Expected gain</span>
@@ -490,8 +509,10 @@ function renderSwitchTicket(input, output, switchOutput) {
     ['Cash after sale', money(output.cashAfter)],
     ['Buy cost', money(switchOutput.buyCost)],
     ['Investable cash', money(switchOutput.investableCash)],
-    ['Target price', switchOutput.hasTargetPrice ? money(switchOutput.targetPrice) : 'Manual'],
-    ['Target shares', switchOutput.hasTargetPrice ? formatShares(switchOutput.targetShares) : 'Price needed'],
+    ['Current buy price', switchOutput.hasBuyPrice ? money(switchOutput.buyPrice) : 'Price needed'],
+    ['Target price', Number.isFinite(switchOutput.projectedTargetPrice) ? money(switchOutput.projectedTargetPrice) : 'Target needed'],
+    ['Expected gain', switchOutput.hasProjection ? formatPercent(switchOutput.expectedReturn) : 'Required'],
+    ['Target shares', switchOutput.hasBuyPrice ? formatShares(switchOutput.targetShares) : 'Buy price needed'],
     ['Invested value', money(switchOutput.targetInvested)],
     ['Residual cash', money(switchOutput.residualCash)],
     ['Horizon', `${input.switchHorizonYears || 1}y`]
@@ -504,7 +525,7 @@ function renderSwitchTicket(input, output, switchOutput) {
     </div>
     <div class="switch-ticket__grid">
       ${rows.map(([label, value], index) => `
-        <div class="switch-ticket__item${index === 6 ? ' switch-ticket__item--wide' : ''}">
+        <div class="switch-ticket__item${index === 6 || index === 8 ? ' switch-ticket__item--wide' : ''}">
           <span>${escapeHtml(label)}</span>
           <strong>${escapeHtml(value)}</strong>
         </div>
@@ -524,18 +545,22 @@ function renderSwitchComparison(input, output, switchOutput) {
   const oldName = instrumentDisplayName(selectedInstrument, 'Hold old stock');
   const newName = instrumentDisplayName(selectedTargetInstrument, 'Switch target');
   const horizon = input.switchHorizonYears || 1;
-  const targetShareText = switchOutput.hasTargetPrice
+  const targetShareText = switchOutput.hasBuyPrice
     ? formatShares(switchOutput.targetShares)
     : money(switchOutput.targetInvested);
+  const targetPriceText = Number.isFinite(switchOutput.projectedTargetPrice) ? money(switchOutput.projectedTargetPrice) : '—';
   const rows = [
     ['Start value', money(output.sellValue), money(switchOutput.investableCash)],
     ['Realized tax', money(0), money(output.taxDue)],
     ['Costs', money(0), money(switchOutput.sellCost + switchOutput.buyCost)],
+    ['Current buy price', '—', switchOutput.hasBuyPrice ? money(switchOutput.buyPrice) : '—'],
+    ['Target price', '—', targetPriceText],
     ['Shares', formatShares(output.sellShares), targetShareText],
-    [`Expected return (${horizon}y)`, formatPercent(input.expectedOldReturn), formatPercent(input.expectedNewReturn)],
+    [`Expected return (${horizon}y)`, formatPercent(input.expectedOldReturn), formatPercent(switchOutput.expectedReturn)],
     ['Future value', money(output.futureValueOld), money(switchOutput.futureValueNew)],
     ['Expected difference', '—', signedMoney(switchOutput.futureDifference, output.valueCurrency || input.currencyCode)],
     ['Required target return', '—', formatPercent(switchOutput.requiredTargetReturn)],
+    ['Required target price', '—', money(switchOutput.requiredTargetPrice)],
     ['Margin vs hurdle', '—', signedPercent(switchOutput.returnMargin)],
     ['Expected new gain', '—', money(switchOutput.expectedGainAmount)]
   ];
@@ -589,7 +614,7 @@ function renderSwitchMapping(input, output, switchOutput) {
   els.switchMapping.innerHTML = `
     <div class="switch-mapping__header">
       <div><span>Exposure mapping</span><strong>${escapeHtml(instrumentDisplayName(selectedInstrument, 'Current position'))} → ${escapeHtml(instrumentDisplayName(selectedTargetInstrument))}</strong></div>
-      <strong>${escapeHtml(switchOutput.hasTargetPrice ? 'Mapped' : 'Needs target price')}</strong>
+      <strong>${escapeHtml(switchOutput.hasBuyPrice ? 'Mapped' : 'Needs buy price')}</strong>
     </div>
     <div class="switch-mapping__grid">
       ${cards.map(([label, value]) => `
@@ -812,13 +837,21 @@ function updateResults(input, output) {
   setText(els.fvOld, valueMoney(output.futureValueOld));
 
   const taxPhrase = input.includeTaxOnNew ? 'after tax on future positive gains' : 'without taxing future gains';
-  els.switchVerdict.textContent = 'Hurdle rate';
   const targetPhrase = selectedTargetInstrument
     ? `${instrumentDisplayName(selectedTargetInstrument)} must reach`
     : 'The new stock must reach';
-  els.switchExplanation.textContent = `${targetPhrase} ${requiredNewText} gross return to match holding the old stock, ${taxPhrase}.`;
+  if (!switchOutput.hasBuyPrice) {
+    els.switchVerdict.textContent = 'Needs buy price';
+    els.switchExplanation.textContent = 'Fetch or enter the target stock current buy price to size the switch from tax-adjusted cash.';
+  } else if (!switchOutput.hasProjection) {
+    els.switchVerdict.textContent = 'Needs target';
+    els.switchExplanation.textContent = 'Enter either a target sell price or expected gain for the switched stock to project profit after tax.';
+  } else {
+    els.switchVerdict.textContent = 'Hurdle rate';
+    els.switchExplanation.textContent = `${targetPhrase} ${requiredNewText} gross return to match holding the old stock, ${taxPhrase}.`;
+  }
 
-  if (Number.isFinite(input.expectedNewReturn)) {
+  if (Number.isFinite(switchOutput.futureValueNew)) {
     els.futureComparison.hidden = false;
     setText(els.fvNew, valueMoney(switchOutput.futureValueNew));
     setText(els.fvDifference, signedMoney(switchOutput.futureDifference, output.valueCurrency || input.currencyCode));
@@ -842,6 +875,10 @@ function updateResults(input, output) {
 function drawChart(input, output, switchOutput = calculateSwitchUpgrade(input, output)) {
   const canvas = els.chart;
   if (!canvas || els.switchResult.classList.contains('is-hidden') || !hasCoreInputs(input)) return;
+  if (!Number.isFinite(switchOutput.targetInvested) || switchOutput.targetInvested <= 0) {
+    clearChart();
+    return;
+  }
 
   const rect = canvas.getBoundingClientRect();
   const cssWidth = Math.max(rect.width, 280);
@@ -1004,6 +1041,18 @@ async function loadAssetHistory(instrument, role, range, signal) {
   }
   assetHistoryCache.set(key, payload);
   return { role, payload };
+}
+
+function syncModeSpecificInputs() {
+  const isSwitch = activeMode === 'switch' || !els.switchResult?.classList.contains('is-hidden');
+  document.body.classList.toggle('is-switch-mode', isSwitch);
+  document.querySelectorAll('.field--switch-only').forEach((field) => {
+    field.hidden = !isSwitch;
+  });
+  const switchPanel = document.querySelector('.switch-target-panel');
+  if (switchPanel) switchPanel.hidden = !isSwitch;
+  const rebuyField = els.rebuyPrice?.closest('.field');
+  if (rebuyField) rebuyField.hidden = isSwitch;
 }
 
 function normalizedHistorySeries(payload, label, color) {
@@ -1203,6 +1252,7 @@ async function refreshAssetHistory() {
 }
 
 function calculate() {
+  syncModeSpecificInputs();
   setCurrency(els.currencyCode.value);
   const input = getInputs();
   const output = calculateValues(input);
@@ -1227,7 +1277,6 @@ function calculate() {
 
 function setMode(mode) {
   activeMode = mode;
-  document.body.classList.toggle('is-switch-mode', mode === 'switch');
   els.tabs.forEach((tab) => {
     const selected = tab.dataset.mode === mode;
     tab.classList.toggle('is-active', selected);
@@ -1237,6 +1286,7 @@ function setMode(mode) {
   els.switchResult.classList.toggle('is-hidden', mode !== 'switch');
   els.sameResult.setAttribute('aria-hidden', String(mode !== 'same'));
   els.switchResult.setAttribute('aria-hidden', String(mode !== 'switch'));
+  syncModeSpecificInputs();
   requestAnimationFrame(calculate);
 }
 
@@ -1259,7 +1309,7 @@ function updateDockVisibility() {
     ? switchTargetRect.top < viewportHeight - 90 && switchTargetRect.bottom > 90
     : false;
   const formActive = ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement?.tagName || '');
-  const configuredSwitchTarget = Boolean(els.switchTargetPrice?.value || selectedTargetInstrument);
+  const configuredSwitchTarget = Boolean(els.switchBuyPrice?.value || els.switchTargetPrice?.value || els.expectedNewReturn?.value || selectedTargetInstrument);
 
   els.stickySummary.classList.toggle('is-docked-hidden', headerSummaryVisible || resultsVisible || switchTargetVisible || formActive || configuredSwitchTarget);
 }
@@ -1853,13 +1903,58 @@ function activateSwitchStockMode() {
   if (activeMode !== 'switch') setMode('switch');
 }
 
+function syncSwitchProjectionFromReturn() {
+  const buyPrice = parseLocaleNumber(els.switchBuyPrice?.value);
+  const expected = parseLocaleNumber(els.expectedNewReturn?.value);
+  if (!Number.isFinite(expected)) {
+    if (switchProjectionSource === 'return' && els.switchTargetPrice) els.switchTargetPrice.value = '';
+    return;
+  }
+  if (Number.isFinite(buyPrice) && buyPrice > 0 && els.switchTargetPrice) {
+    els.switchTargetPrice.value = formatInputNumber(buyPrice * (1 + clampReturn(expected / 100)));
+  }
+}
+
+function syncSwitchProjectionFromTarget() {
+  const buyPrice = parseLocaleNumber(els.switchBuyPrice?.value);
+  const targetPrice = parseLocaleNumber(els.switchTargetPrice?.value);
+  if (!Number.isFinite(targetPrice) || targetPrice <= 0) {
+    if (switchProjectionSource === 'target' && els.expectedNewReturn) els.expectedNewReturn.value = '';
+    return;
+  }
+  if (Number.isFinite(buyPrice) && buyPrice > 0 && els.expectedNewReturn) {
+    els.expectedNewReturn.value = formatInputNumber((targetPrice / buyPrice - 1) * 100);
+  }
+}
+
+function syncSwitchProjectionFromActiveAssumption() {
+  if (switchProjectionSource === 'target') {
+    syncSwitchProjectionFromTarget();
+    return;
+  }
+  if (switchProjectionSource === 'return') {
+    syncSwitchProjectionFromReturn();
+    return;
+  }
+  if (Number.isFinite(parseLocaleNumber(els.expectedNewReturn?.value))) {
+    switchProjectionSource = 'return';
+    syncSwitchProjectionFromReturn();
+  } else if (Number.isFinite(parseLocaleNumber(els.switchTargetPrice?.value))) {
+    switchProjectionSource = 'target';
+    syncSwitchProjectionFromTarget();
+  }
+}
+
 function selectTargetInstrument(item, options = {}) {
   selectedTargetInstrument = { ...item };
   pendingTargetPrice = null;
   latestTargetQuoteData = null;
   assetHistoryData.target = null;
-  if (!options.skipAutoPrice && els.switchTargetPrice) {
-    els.switchTargetPrice.value = '';
+  if (!options.skipAutoPrice) {
+    if (els.switchBuyPrice) els.switchBuyPrice.value = '';
+    if (els.switchTargetPrice) els.switchTargetPrice.value = '';
+    if (els.expectedNewReturn) els.expectedNewReturn.value = '';
+    switchProjectionSource = null;
   }
   if (els.selectedTargetInstrument) {
     els.selectedTargetInstrument.hidden = false;
@@ -1873,11 +1968,11 @@ function selectTargetInstrument(item, options = {}) {
   if (els.targetPriceTimestamp) els.targetPriceTimestamp.hidden = true;
   if (els.refreshTargetPriceBtn) els.refreshTargetPriceBtn.hidden = true;
   if (canUseFunctionEndpoint() && !options.skipAutoPrice) {
-    setTargetMarketStatus('Selected target. Pulling the latest price automatically...');
+    setTargetMarketStatus('Selected target. Pulling the latest buy price automatically...');
     queueTargetAutoPriceFetch();
   } else {
     setTargetMarketStatus(canUseFunctionEndpoint()
-      ? 'Selected target. Target price stays manual until refreshed.'
+      ? 'Selected target. Current buy price stays manual until refreshed.'
       : 'Selected target. Live auto-price needs Netlify dev or deploy.');
   }
   renderSwitchAssetData();
@@ -1904,8 +1999,13 @@ function clearSelectedTargetInstrument({ clearSearch = true, clearPrice = false 
   if (els.refreshTargetPriceBtn) els.refreshTargetPriceBtn.hidden = true;
   if (els.targetPriceTimestamp) els.targetPriceTimestamp.hidden = true;
   if (clearSearch && els.targetInstrumentSearch) els.targetInstrumentSearch.value = '';
-  if (clearPrice && els.switchTargetPrice) els.switchTargetPrice.value = '';
-  setTargetMarketStatus('Select a target to fetch its current price.');
+  if (clearPrice) {
+    if (els.switchBuyPrice) els.switchBuyPrice.value = '';
+    if (els.switchTargetPrice) els.switchTargetPrice.value = '';
+    if (els.expectedNewReturn) els.expectedNewReturn.value = '';
+    switchProjectionSource = null;
+  }
+  setTargetMarketStatus('Select a target to fetch its current buy price.');
   renderSwitchAssetData();
   drawAssetPerformanceChart();
   queueAssetHistoryRefresh();
@@ -1917,7 +2017,7 @@ async function useLatestTargetPrice(options = {}) {
   const auto = options?.auto === true;
 
   if (!canUseFunctionEndpoint()) {
-    setTargetMarketStatus('Live target price needs Netlify dev or deploy. Enter target price manually.', auto ? 'warning' : 'error');
+    setTargetMarketStatus('Live target buy price needs Netlify dev or deploy. Enter the current buy price manually.', auto ? 'warning' : 'error');
     return;
   }
 
@@ -1947,7 +2047,7 @@ async function useLatestTargetPrice(options = {}) {
   targetPriceAbort = new AbortController();
   const currentAbort = targetPriceAbort;
   setTargetPriceLoading(true);
-  setTargetMarketStatus(auto ? 'Selected target. Pulling the latest price automatically...' : 'Fetching latest target price...');
+  setTargetMarketStatus(auto ? 'Selected target. Pulling the latest buy price automatically...' : 'Fetching latest target buy price...');
 
   try {
     const response = await fetch(`/.netlify/functions/get-price?${params.toString()}`, {
@@ -1956,7 +2056,7 @@ async function useLatestTargetPrice(options = {}) {
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok || !Number.isFinite(Number(payload.price))) {
-      const message = payload.message || payload.error || 'Live target price unavailable. Enter the target price manually.';
+      const message = payload.message || payload.error || 'Live target buy price unavailable. Enter the current buy price manually.';
       setTargetMarketStatus(message, response.status === 503 ? 'warning' : 'error');
       return;
     }
@@ -1975,8 +2075,9 @@ async function useLatestTargetPrice(options = {}) {
     pendingTargetPrice = quotePayload(payload, price, returnedCurrency, sourceCurrency);
     latestTargetQuoteData = pendingTargetPrice;
     applyingTargetMarketPrice = true;
-    if (els.switchTargetPrice) els.switchTargetPrice.value = formatInputNumber(price);
+    if (els.switchBuyPrice) els.switchBuyPrice.value = formatInputNumber(price);
     applyingTargetMarketPrice = false;
+    syncSwitchProjectionFromActiveAssumption();
     selectedTargetInstrument.priceCurrency = returnedCurrency;
     selectedTargetInstrument.nativeCurrency = payload.originalCurrency || sourceCurrency;
     if (els.targetPriceTimestamp) {
@@ -1984,22 +2085,22 @@ async function useLatestTargetPrice(options = {}) {
       if (els.targetPriceSourceLabel) {
         els.targetPriceSourceLabel.textContent = converted && Number.isFinite(Number(payload.originalPrice))
           ? `Converted from ${formatCurrency(Number(payload.originalPrice), payload.originalCurrency || sourceCurrency)}`
-          : 'Latest target price';
+          : 'Latest buy price';
       }
       if (els.targetPriceTimeLabel) {
         els.targetPriceTimeLabel.textContent = `Fetched: ${new Date(pendingTargetPrice.fetchedAt).toLocaleTimeString('de-DE')}`;
       }
     }
     if (els.refreshTargetPriceBtn) els.refreshTargetPriceBtn.hidden = false;
-    flashField(els.switchTargetPrice);
+    flashField(els.switchBuyPrice);
     flashLiveResult();
-    setTargetMarketStatus(`${auto ? 'Auto-applied' : 'Applied'} latest ${returnedCurrency} target price: ${formatCurrency(price, returnedCurrency)}.`, 'success');
+    setTargetMarketStatus(`${auto ? 'Auto-applied' : 'Applied'} latest ${returnedCurrency} buy price: ${formatCurrency(price, returnedCurrency)}. Add target price or gain to project the switch.`, 'success');
     renderSwitchAssetData();
     queueAssetHistoryRefresh();
     calculate();
   } catch (error) {
     if (error.name === 'AbortError') return;
-    setTargetMarketStatus('Live target price unavailable in this environment. Enter target price manually.', 'warning');
+    setTargetMarketStatus('Live target buy price unavailable in this environment. Enter the current buy price manually.', 'warning');
   } finally {
     if (targetPriceAbort === currentAbort) {
       targetPriceAbort = null;
@@ -2024,7 +2125,7 @@ function markManualTargetPriceOverride() {
   pendingTargetPrice = null;
   latestTargetQuoteData = null;
   if (els.refreshTargetPriceBtn) els.refreshTargetPriceBtn.hidden = false;
-  setTargetMarketStatus('Manual target price override active. Refresh latest price anytime.', 'warning');
+  setTargetMarketStatus('Manual target buy price override active. Refresh latest price anytime.', 'warning');
   renderSwitchAssetData();
 }
 
@@ -2038,10 +2139,12 @@ function clearInputs() {
   els.rebuyPrice.value = '';
   els.expectedOldReturn.value = '';
   els.expectedNewReturn.value = '';
+  if (els.switchBuyPrice) els.switchBuyPrice.value = '';
   if (els.switchTargetPrice) els.switchTargetPrice.value = '';
   if (els.switchBuyCost) els.switchBuyCost.value = '';
   if (els.switchHorizonYears) els.switchHorizonYears.value = '1';
   if (els.switchAllowFractional) els.switchAllowFractional.checked = true;
+  switchProjectionSource = null;
   els.includeTaxOnNew.checked = true;
   clearSelectedInstrument({ clearSearch: true });
   clearSelectedTargetInstrument({ clearSearch: true, clearPrice: true });
@@ -2114,8 +2217,6 @@ function clearInputs() {
   els.transactionCost,
   els.rebuyPrice,
   els.expectedOldReturn,
-  els.expectedNewReturn,
-  els.switchTargetPrice,
   els.switchBuyCost,
   els.switchHorizonYears
 ].filter(Boolean).forEach((input) => {
@@ -2124,9 +2225,32 @@ function clearInputs() {
 });
 
 els.currentPrice.addEventListener('input', markManualPriceOverride);
+if (els.switchBuyPrice) {
+  els.switchBuyPrice.addEventListener('input', () => {
+    markManualTargetPriceOverride();
+    activateSwitchStockMode();
+    syncSwitchProjectionFromActiveAssumption();
+    calculate();
+  });
+  els.switchBuyPrice.addEventListener('focus', () => els.switchBuyPrice.select());
+}
 if (els.switchTargetPrice) {
-  els.switchTargetPrice.addEventListener('input', markManualTargetPriceOverride);
-  els.switchTargetPrice.addEventListener('input', activateSwitchStockMode);
+  els.switchTargetPrice.addEventListener('input', () => {
+    switchProjectionSource = 'target';
+    activateSwitchStockMode();
+    syncSwitchProjectionFromTarget();
+    calculate();
+  });
+  els.switchTargetPrice.addEventListener('focus', () => els.switchTargetPrice.select());
+}
+if (els.expectedNewReturn) {
+  els.expectedNewReturn.addEventListener('input', () => {
+    switchProjectionSource = 'return';
+    activateSwitchStockMode();
+    syncSwitchProjectionFromReturn();
+    calculate();
+  });
+  els.expectedNewReturn.addEventListener('focus', () => els.expectedNewReturn.select());
 }
 
 els.currencyCode.addEventListener('blur', () => {
@@ -2229,6 +2353,10 @@ setCurrency(els.currencyCode.value);
 // Initialize: URL state > localStorage > fresh
 const urlRestored = typeof decodeStateFromURL === 'function' && decodeStateFromURL();
 if (!urlRestored && typeof restoreFromLocalStorage === 'function') restoreFromLocalStorage();
+syncSwitchProjectionFromActiveAssumption();
+if (els.switchBuyPrice?.value || els.switchTargetPrice?.value || els.expectedNewReturn?.value || selectedTargetInstrument) {
+  setMode('switch');
+}
 
 // Wire new UI
 if (typeof wireNewUI === 'function') wireNewUI();

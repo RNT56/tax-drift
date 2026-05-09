@@ -357,6 +357,19 @@ main {
   grid-column: 1 / -1;
 }
 
+.field--switch-only,
+.switch-target-panel {
+  display: none;
+}
+
+body.is-switch-mode .field--switch-only {
+  display: flex;
+}
+
+body.is-switch-mode .switch-target-panel {
+  display: block;
+}
+
 body.is-switch-mode .field--rebuy-only {
   display: none;
 }

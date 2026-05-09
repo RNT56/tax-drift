@@ -461,14 +461,20 @@
             <em>%</em>
           </label>
 
-          <label class="field field--wide">
+          <label class="field field--switch-only" hidden>
+            <span>Target price</span>
+            <input id="switchTargetPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 720,00" aria-label="Expected switch target sell price per share">
+            <em><span class="currencyUnit">EUR</span> / share</em>
+          </label>
+
+          <label class="field field--switch-only" hidden>
             <span>Expected new gain</span>
             <input id="expectedNewReturn" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 12" aria-label="Expected switch stock gain">
             <em>%</em>
           </label>
         </div>
 
-        <div class="switch-target-panel" aria-labelledby="switchTargetTitle">
+        <div class="switch-target-panel" aria-labelledby="switchTargetTitle" hidden>
           <div class="switch-target-panel__header">
             <div>
               <span>Switch stock</span>
@@ -528,7 +534,7 @@
             </div>
             <div class="selected-instrument__actions">
               <button id="useLatestTargetPriceBtn" type="button" class="primary-button">Apply latest</button>
-              <button id="refreshTargetPriceBtn" type="button" class="icon-button icon-button--compact" aria-label="Refresh latest target price" hidden>
+              <button id="refreshTargetPriceBtn" type="button" class="icon-button icon-button--compact" aria-label="Refresh latest target buy price" hidden>
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M15 9A6 6 0 0 1 4.76 13.24M3 9A6 6 0 0 1 13.24 4.76M13.5 2.25V5.25H10.5M4.5 15.75V12.75H7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
               </button>
               <button id="clearTargetInstrumentBtn" type="button" class="ghost-button ghost-button--tight">Clear</button>
@@ -539,17 +545,17 @@
               <span id="targetPriceTimeLabel">—</span>
             </div>
 
-            <p id="targetMarketDataStatus" class="market-status">Select a target to fetch its current price.</p>
+            <p id="targetMarketDataStatus" class="market-status">Select a target to fetch its current buy price.</p>
           </article>
 
           <div id="switchAutoSizing" class="switch-auto-sizing" aria-live="polite"></div>
 
           <details class="switch-advanced-details">
-            <summary>Manual price / assumptions</summary>
+            <summary>Manual buy price / execution</summary>
             <div class="field-grid field-grid--switch-target">
               <label class="field">
-                <span>Target price</span>
-                <input id="switchTargetPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="auto or manual" aria-label="Target stock price per share">
+                <span>Current buy price</span>
+                <input id="switchBuyPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="latest or manual" aria-label="Current buy price for switch target per share">
                 <em><span class="currencyUnit">EUR</span> / share</em>
               </label>
 

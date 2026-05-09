@@ -240,14 +240,21 @@ function calculateSwitchUpgrade(input, output = calculateValues(input)) {
   if (!hasCoreInputs(input) || !Number.isFinite(output.sellValue) || output.sellValue <= 0) {
     return {
       isValid: false,
+      hasBuyPrice: false,
       hasTargetPrice: false,
+      hasProjection: false,
       sellCost: NaN,
       buyCost: NaN,
       investableCash: NaN,
+      buyPrice: NaN,
+      targetPrice: NaN,
+      projectedTargetPrice: NaN,
+      expectedReturn: NaN,
       targetShares: NaN,
       targetInvested: NaN,
       residualCash: NaN,
       requiredTargetReturn: NaN,
+      requiredTargetPrice: NaN,
       requiredExcessReturn: NaN,
       futureValueOld: NaN,
       futureValueNew: NaN,
@@ -261,15 +268,28 @@ function calculateSwitchUpgrade(input, output = calculateValues(input)) {
   const sellCost = Math.max(input.transactionCost || 0, 0) * sellFraction;
   const buyCost = Math.max(finiteNumber(input.switchBuyCost, 0), 0);
   const investableCash = Math.max(output.cashAfter - buyCost, 0);
+  const buyPrice = finiteNumber(input.switchBuyPrice, NaN);
+  const hasBuyPrice = Number.isFinite(buyPrice) && buyPrice > 0;
   const targetPrice = finiteNumber(input.switchTargetPrice, NaN);
   const hasTargetPrice = Number.isFinite(targetPrice) && targetPrice > 0;
+  const expectedReturnInput = finiteNumber(input.expectedNewReturn, NaN);
+  const expectedReturnFromTarget = hasBuyPrice && hasTargetPrice
+    ? clampReturn(targetPrice / buyPrice - 1)
+    : NaN;
+  const expectedReturn = Number.isFinite(expectedReturnInput)
+    ? expectedReturnInput
+    : expectedReturnFromTarget;
+  const hasProjection = Number.isFinite(expectedReturn);
+  const projectedTargetPrice = hasBuyPrice && hasProjection
+    ? buyPrice * (1 + expectedReturn)
+    : (hasTargetPrice ? targetPrice : NaN);
   const allowFractional = input.switchAllowFractional !== false;
-  const rawTargetShares = hasTargetPrice ? investableCash / targetPrice : NaN;
-  const targetShares = hasTargetPrice
+  const rawTargetShares = hasBuyPrice ? investableCash / buyPrice : NaN;
+  const targetShares = hasBuyPrice
     ? (allowFractional ? rawTargetShares : Math.floor(rawTargetShares))
     : NaN;
-  const targetInvested = hasTargetPrice ? Math.max(targetShares * targetPrice, 0) : investableCash;
-  const residualCash = hasTargetPrice ? Math.max(investableCash - targetInvested, 0) : 0;
+  const targetInvested = hasBuyPrice ? Math.max(targetShares * buyPrice, 0) : NaN;
+  const residualCash = hasBuyPrice ? Math.max(investableCash - targetInvested, 0) : NaN;
   const targetValue = hurdleTargetValue({
     sellValue: output.sellValue,
     oldReturn: input.expectedOldReturn,
@@ -287,31 +307,44 @@ function calculateSwitchUpgrade(input, output = calculateValues(input)) {
       includeTax: input.includeTaxOnNew,
       taxProfile: input.taxProfile
     });
-  const futureValueNew = input.taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined'
-    ? GermanTax.afterGermanTaxFutureValue(targetInvested, input.expectedNewReturn, input.taxProfile) + residualCash
-    : afterTaxFutureValue(targetInvested, input.expectedNewReturn, input.taxRate, input.includeTaxOnNew) + residualCash;
+  const requiredTargetPrice = hasBuyPrice && Number.isFinite(requiredTargetReturn)
+    ? buyPrice * (1 + requiredTargetReturn)
+    : NaN;
+  const futureValueNew = hasBuyPrice && hasProjection
+    ? (input.taxProfile?.mode === 'de' && typeof GermanTax !== 'undefined'
+      ? GermanTax.afterGermanTaxFutureValue(targetInvested, expectedReturn, input.taxProfile) + residualCash
+      : afterTaxFutureValue(targetInvested, expectedReturn, input.taxRate, input.includeTaxOnNew) + residualCash)
+    : NaN;
   const futureDifference = futureValueNew - output.futureValueOld;
-  const returnMargin = Number.isFinite(input.expectedNewReturn) && Number.isFinite(requiredTargetReturn)
-    ? input.expectedNewReturn - requiredTargetReturn
+  const returnMargin = hasProjection && Number.isFinite(requiredTargetReturn)
+    ? expectedReturn - requiredTargetReturn
     : NaN;
   const expectedGainAmount = Number.isFinite(futureValueNew)
     ? futureValueNew - investableCash
     : NaN;
-  const requiredExcessReturn = requiredTargetReturn - input.expectedOldReturn;
+  const requiredExcessReturn = Number.isFinite(requiredTargetReturn)
+    ? requiredTargetReturn - input.expectedOldReturn
+    : NaN;
 
   return {
     isValid: true,
+    hasBuyPrice,
     hasTargetPrice,
+    hasProjection,
     sellCost,
     buyCost,
     investableCash,
+    buyPrice,
     targetPrice,
+    projectedTargetPrice,
+    expectedReturn,
     rawTargetShares,
     targetShares,
     targetInvested,
     residualCash,
     targetValue,
     requiredTargetReturn,
+    requiredTargetPrice,
     requiredExcessReturn,
     futureValueOld: output.futureValueOld,
     futureValueNew,
@@ -345,7 +378,7 @@ function localSearchSymbols(query, limit = 10) {
 }
 
 /* ── URL state encoding/decoding ───────────────────────────────────── */
-const STATE_KEYS = ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','includeTaxOnNew','currencyCode','sellPct','portfolioValue','targetWeight','fxMode','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','switchTargetPrice','switchBuyCost','switchHorizonYears','switchAllowFractional'];
+const STATE_KEYS = ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','includeTaxOnNew','currencyCode','sellPct','portfolioValue','targetWeight','fxMode','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','switchBuyPrice','switchTargetPrice','switchBuyCost','switchHorizonYears','switchAllowFractional'];
 
 function encodeStateToURL(els) {
   const p = new URLSearchParams();
@@ -366,6 +399,7 @@ function encodeStateToURL(els) {
   if (val('taxCurrency')) p.set('taxCurrency', val('taxCurrency'));
   if (val('fxRateBuy')) p.set('fxRateBuy', val('fxRateBuy'));
   if (val('fxRateNow')) p.set('fxRateNow', val('fxRateNow'));
+  if (val('switchBuyPrice')) p.set('switchBuyPrice', val('switchBuyPrice'));
   if (val('switchTargetPrice')) p.set('targetPrice', val('switchTargetPrice'));
   if (val('switchBuyCost')) p.set('switchBuyCost', val('switchBuyCost'));
   if (val('switchHorizonYears')) p.set('horizon', val('switchHorizonYears'));
@@ -394,6 +428,7 @@ function decodeStateFromURL() {
   set('taxCurrency', 'taxCurrency');
   set('fxRateBuy', 'fxRateBuy');
   set('fxRateNow', 'fxRateNow');
+  set('switchBuyPrice', 'switchBuyPrice');
   set('switchTargetPrice', 'targetPrice');
   set('switchBuyCost', 'switchBuyCost');
   set('switchHorizonYears', 'horizon');
@@ -422,10 +457,13 @@ function generateCSV(input, output) {
     ['Cash after sale', output.cashAfter], ['Break-even rebuy price', output.breakEvenPrice],
     ['Required drop', formatPercent(output.requiredDropPct)],
     ['Required new return', formatPercent(switchOutput.requiredTargetReturn)],
+    ['Switch current buy price', input.switchBuyPrice],
     ['Switch target price', input.switchTargetPrice],
+    ['Switch expected gain', formatPercent(switchOutput.expectedReturn)],
     ['Switch target shares', switchOutput.targetShares],
     ['Switch invested value', switchOutput.targetInvested],
     ['Switch residual cash', switchOutput.residualCash],
+    ['Switch required target price', switchOutput.requiredTargetPrice],
     ['Switch future value', switchOutput.futureValueNew],
     ['Switch future difference', switchOutput.futureDifference],
     [],
