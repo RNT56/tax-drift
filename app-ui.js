@@ -8,11 +8,6 @@ const ui = {
   apiStatusChip: document.getElementById('apiStatusChip'),
   apiStatusLabel: document.getElementById('apiStatusLabel'),
   authStatusBtn: document.getElementById('authStatusBtn'),
-  priceConfirmation: document.getElementById('priceConfirmation'),
-  confirmPrice: document.getElementById('confirmPrice'),
-  confirmPriceMeta: document.getElementById('confirmPriceMeta'),
-  confirmPriceBtn: document.getElementById('confirmPriceBtn'),
-  cancelPriceBtn: document.getElementById('cancelPriceBtn'),
   priceTimestamp: document.getElementById('priceTimestamp'),
   priceSourceLabel: document.getElementById('priceSourceLabel'),
   priceTimeLabel: document.getElementById('priceTimeLabel'),
@@ -134,6 +129,9 @@ let portfolioPositions = [];
 let portfolioScenarios = [];
 let activeScenarioId = null;
 let lastOptimizerResult = null;
+let fxFetchTimer = null;
+let fxAbort = null;
+let optimizerRerunTimer = null;
 
 /* ── Lots manager ──────────────────────────────────────────────────── */
 function addLot(sharesVal, priceVal) {
@@ -229,6 +227,58 @@ function activateFxMode(mode) {
   ui.fxChips.forEach(c => c.classList.toggle('is-active', c.dataset.fxMode === mode));
   ui.fxFields.hidden = mode !== 'manual';
   if (typeof calculate === 'function') calculate();
+  if (mode === 'manual') queueCurrentFxFetch();
+}
+
+function setFxLoading(isLoading) {
+  ui.fxRateNow?.closest('.field')?.classList.toggle('is-loading-inline', Boolean(isLoading));
+}
+
+function queueCurrentFxFetch(force = false) {
+  clearTimeout(fxFetchTimer);
+  fxFetchTimer = window.setTimeout(() => autoFetchCurrentFx({ force }), 220);
+}
+
+async function autoFetchCurrentFx({ force = false } = {}) {
+  if (fxMode !== 'manual' || window.location.protocol === 'file:') return;
+  const from = normalizeCurrencyCode(ui.positionCurrency?.value || '');
+  const to = normalizeCurrencyCode(ui.taxCurrency?.value || '');
+  if (!/^[A-Z]{3}$/.test(from) || !/^[A-Z]{3}$/.test(to)) return;
+  if (from === to) {
+    if (ui.fxRateNow) ui.fxRateNow.value = '1';
+    if (typeof calculate === 'function') calculate();
+    return;
+  }
+  if (!force && parseLocaleNumber(ui.fxRateNow?.value) > 0) return;
+  if (fxAbort) fxAbort.abort();
+  fxAbort = new AbortController();
+  const currentAbort = fxAbort;
+  setFxLoading(true);
+  try {
+    const params = new URLSearchParams({ from, to });
+    const response = await fetch(`/.netlify/functions/get-fx-rate?${params.toString()}`, {
+      signal: currentAbort.signal
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !Number.isFinite(Number(payload.rate))) return;
+    if (ui.fxRateNow) {
+      ui.fxRateNow.value = formatInputNumber(Number(payload.rate));
+      ui.fxRateNow.dispatchEvent(new Event('input', { bubbles: true }));
+      if (typeof flashField === 'function') flashField(ui.fxRateNow);
+      const hint = ui.fxRateNow.closest('.field')?.querySelector('em');
+      if (hint) hint.textContent = payload.cached ? 'cached live rate' : 'live rate';
+    }
+  } catch(e) {
+    if (e.name !== 'AbortError') {
+      const hint = ui.fxRateNow?.closest('.field')?.querySelector('em');
+      if (hint) hint.textContent = 'manual rate';
+    }
+  } finally {
+    if (fxAbort === currentAbort) {
+      fxAbort = null;
+      setFxLoading(false);
+    }
+  }
 }
 
 /* ── API status ────────────────────────────────────────────────────── */
@@ -331,12 +381,12 @@ function buildWorkspaceSnapshot() {
     : { name: ui.workspaceName?.value || 'Local workspace', input, positions: portfolioPositions, scenarios: portfolioScenarios, imports: importedTransactions, lots: importedLots };
 }
 
-function saveWorkspaceLocal() {
+function saveWorkspaceLocal(silent = false) {
   try {
     localStorage.setItem(WORKSPACE_KEY, JSON.stringify(buildWorkspaceSnapshot()));
-    showToast('Workspace saved locally');
+    if (!silent) showToast('Workspace saved locally');
   } catch(e) {
-    showToast('Workspace save failed');
+    if (!silent) showToast('Workspace save failed');
   }
 }
 
@@ -397,7 +447,7 @@ function loadWorkspaceLocal() {
 async function syncWorkspaceBackend() {
   const token = await getPremiumAuthToken();
   if (!token) {
-    saveWorkspaceLocal();
+    saveWorkspaceLocal(true);
     showToast('Saved locally; sign in for backend sync');
     return;
   }
@@ -562,18 +612,27 @@ function commitBrokerImport() {
     : { lots: [], errors: ['FIFO ledger is unavailable.'] };
   importedTransactions = pendingImportPreview.transactions;
   importedLots = result.lots || [];
-  if (portfolioPositions.length) {
-    portfolioPositions[0] = { ...portfolioPositions[0], lots: importedLots, importedTransactionCount: importedTransactions.length };
-  }
   renderImportPreview({
     ...pendingImportPreview,
     warnings: [...(pendingImportPreview.warnings || []), `Committed ${importedLots.length} open FIFO lots.`],
     errors: result.errors || []
   });
   applyImportedLotsToInputs();
+  const importedPosition = currentPositionFromInputs();
+  if (importedPosition) {
+    const enrichedPosition = {
+      ...importedPosition,
+      lots: importedLots,
+      importedTransactionCount: importedTransactions.length
+    };
+    portfolioPositions = [...portfolioPositions.filter(item => item.id !== enrichedPosition.id), enrichedPosition];
+  } else if (portfolioPositions.length) {
+    portfolioPositions[0] = { ...portfolioPositions[0], lots: importedLots, importedTransactionCount: importedTransactions.length };
+  }
   renderPortfolioWorkspace();
-  saveWorkspaceLocal();
+  saveWorkspaceLocal(true);
   if (typeof calculate === 'function') calculate();
+  queueOptimizerRerun();
 }
 
 function clearBrokerImport() {
@@ -583,7 +642,7 @@ function clearBrokerImport() {
   portfolioPositions = portfolioPositions.map(position => ({ ...position, lots: [], importedTransactionCount: 0 }));
   renderImportPreview(null);
   if (ui.brokerImportFile) ui.brokerImportFile.value = '';
-  saveWorkspaceLocal();
+  saveWorkspaceLocal(true);
   renderPortfolioWorkspace();
   if (typeof calculate === 'function') calculate();
 }
@@ -611,12 +670,13 @@ function activateWorkspaceTab(name) {
 function currentPositionFromInputs() {
   const input = typeof getInputs === 'function' ? getInputs() : {};
   if (!hasCoreInputs(input)) return null;
-  const id = selectedInstrument?.isin || selectedInstrument?.symbol || `manual-${Date.now().toString(36)}`;
+  const importedIdentity = importedTransactions.find(tx => tx?.isin || tx?.symbol || tx?.name) || {};
+  const id = selectedInstrument?.isin || importedIdentity.isin || selectedInstrument?.symbol || importedIdentity.symbol || `manual-${Date.now().toString(36)}`;
   return {
     id: String(id).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || `position-${Date.now().toString(36)}`,
-    name: selectedInstrument?.name || ui.workspaceName?.value || 'Manual position',
-    symbol: selectedInstrument?.symbol || '',
-    isin: selectedInstrument?.isin || '',
+    name: selectedInstrument?.name || importedIdentity.name || importedIdentity.symbol || ui.workspaceName?.value || 'Manual position',
+    symbol: selectedInstrument?.symbol || importedIdentity.symbol || '',
+    isin: selectedInstrument?.isin || importedIdentity.isin || '',
     currency: input.currencyCode,
     shares: input.shares,
     buyPrice: input.buyPrice,
@@ -637,14 +697,15 @@ function addCurrentPosition() {
   }
   portfolioPositions = [...portfolioPositions.filter(item => item.id !== position.id), position];
   renderPortfolioWorkspace();
-  saveWorkspaceLocal();
+  saveWorkspaceLocal(true);
+  queueOptimizerRerun();
 }
 
 function clearPortfolioPositions() {
   portfolioPositions = [];
   lastOptimizerResult = null;
   renderPortfolioWorkspace();
-  saveWorkspaceLocal();
+  saveWorkspaceLocal(true);
 }
 
 function updatePositionTarget(positionId, value) {
@@ -653,13 +714,15 @@ function updatePositionTarget(positionId, value) {
     ? { ...position, targetWeight: Number.isFinite(targetWeight) ? targetWeight : 0 }
     : position);
   renderPortfolioWorkspace();
-  saveWorkspaceLocal();
+  saveWorkspaceLocal(true);
+  queueOptimizerRerun(true);
 }
 
 function removePortfolioPosition(positionId) {
   portfolioPositions = portfolioPositions.filter(position => position.id !== positionId);
   renderPortfolioWorkspace();
-  saveWorkspaceLocal();
+  saveWorkspaceLocal(true);
+  queueOptimizerRerun();
 }
 
 function renderPortfolioWorkspace() {
@@ -736,13 +799,30 @@ function getOptimizerSettings() {
   };
 }
 
-function runPortfolioOptimizer() {
+function hasOptimizerInputs() {
+  return portfolioPositions.length >= 2
+    && portfolioPositions.some(position => (Number(position.targetWeight) || 0) > 0);
+}
+
+function queueOptimizerRerun(force = false) {
+  clearTimeout(optimizerRerunTimer);
+  if (!hasOptimizerInputs() || (!force && !lastOptimizerResult)) return;
+  optimizerRerunTimer = window.setTimeout(() => runPortfolioOptimizer({ auto: true }), 160);
+}
+
+function runPortfolioOptimizer(options = {}) {
   if (!window.TaxWorkspace?.optimizePortfolio) return;
+  const auto = options?.auto === true;
+  ui.optimizerResult?.classList.add('is-optimizing');
   lastOptimizerResult = window.TaxWorkspace.optimizePortfolio(portfolioPositions, getOptimizerSettings(), {
     taxProfile: typeof getDetailedTaxProfile === 'function' ? getDetailedTaxProfile() : { mode: 'flat' }
   });
   renderOptimizerResult(lastOptimizerResult);
   saveScenario(true);
+  ui.optimizerResult?.classList.remove('is-optimizing');
+  ui.optimizerResult?.classList.add('is-live-updated');
+  window.setTimeout(() => ui.optimizerResult?.classList.remove('is-live-updated'), 1200);
+  if (!auto) showToast('Optimizer updated');
 }
 
 function renderOptimizerResult(result) {
@@ -793,7 +873,7 @@ function saveScenario(silent = false) {
   portfolioScenarios = [...portfolioScenarios.filter(item => item.id !== id), scenario];
   activeScenarioId = id;
   renderScenarios();
-  saveWorkspaceLocal();
+  saveWorkspaceLocal(silent);
   if (!silent) showToast('Scenario saved');
 }
 
@@ -808,7 +888,7 @@ function deleteScenario() {
   portfolioScenarios = portfolioScenarios.filter(item => item.id !== activeScenarioId);
   activeScenarioId = portfolioScenarios[0]?.id || null;
   renderScenarios();
-  saveWorkspaceLocal();
+  saveWorkspaceLocal(true);
 }
 
 function renderScenarios() {
@@ -821,6 +901,7 @@ function renderScenarios() {
       option.selected = scenario.id === activeScenarioId;
       ui.scenarioSelect.appendChild(option);
     });
+    updateCustomSelect(ui.scenarioSelect);
   }
   if (!ui.scenarioComparison) return;
   ui.scenarioComparison.innerHTML = '';
@@ -1149,12 +1230,167 @@ function restoreFromLocalStorage() {
       data.lots.forEach(l => addLot(l.shares, l.price));
     }
     if (data.selectedInstrument && typeof selectInstrument === 'function') {
-      selectInstrument(data.selectedInstrument);
+      selectInstrument(data.selectedInstrument, { skipAutoPrice: true });
     }
     restoreLocalAlerts();
     return true;
   } catch(e) { return false; }
 }
+
+/* ── Reusable form controls ────────────────────────────────────────── */
+let activeCustomSelect = null;
+
+function closeCustomSelect(instance = activeCustomSelect) {
+  if (!instance) return;
+  instance.root.classList.remove('is-open');
+  instance.button.setAttribute('aria-expanded', 'false');
+  instance.menu.hidden = true;
+  if (activeCustomSelect === instance) activeCustomSelect = null;
+}
+
+function getSelectLabel(select) {
+  const option = select.options[select.selectedIndex];
+  return option?.textContent?.trim() || select.getAttribute('aria-label') || 'Select';
+}
+
+function getSelectControlLabel(select) {
+  return select.getAttribute('aria-label')
+    || select.closest('.field')?.querySelector('span')?.textContent?.trim()
+    || 'Select';
+}
+
+function updateCustomSelect(select) {
+  const instance = select.__taxswitchSelect;
+  if (!instance) return;
+  const label = getSelectLabel(select);
+  instance.value.textContent = label;
+  instance.button.setAttribute('aria-label', `${instance.label}: ${label}`);
+  instance.menu.innerHTML = '';
+  [...select.options].forEach((option, index) => {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'custom-select__option';
+    item.id = `${instance.id}-option-${index}`;
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', String(option.selected));
+    item.textContent = option.textContent;
+    item.disabled = option.disabled;
+    item.addEventListener('click', () => {
+      select.value = option.value;
+      select.dispatchEvent(new Event('input', { bubbles: true }));
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      closeCustomSelect(instance);
+      instance.button.focus();
+    });
+    instance.menu.appendChild(item);
+  });
+}
+
+function enhanceCustomSelect(select) {
+  if (!select || select.__taxswitchSelect || select.closest('.custom-select')) return;
+  const id = `custom-${select.id || Math.random().toString(36).slice(2)}`;
+  const label = getSelectControlLabel(select);
+  const root = document.createElement('div');
+  root.className = 'custom-select';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'custom-select__button';
+  button.setAttribute('aria-haspopup', 'listbox');
+  button.setAttribute('aria-expanded', 'false');
+  button.setAttribute('aria-controls', `${id}-menu`);
+  const value = document.createElement('span');
+  value.className = 'custom-select__value';
+  const icon = document.createElement('span');
+  icon.className = 'custom-select__icon';
+  icon.setAttribute('aria-hidden', 'true');
+  button.append(value, icon);
+  const menu = document.createElement('div');
+  menu.id = `${id}-menu`;
+  menu.className = 'custom-select__menu';
+  menu.setAttribute('role', 'listbox');
+  menu.setAttribute('aria-label', label);
+  menu.hidden = true;
+  root.append(button, menu);
+  select.classList.add('native-select--enhanced');
+  select.tabIndex = -1;
+  select.setAttribute('aria-hidden', 'true');
+  select.insertAdjacentElement('afterend', root);
+  const instance = { id, label, root, button, value, menu, select };
+  select.__taxswitchSelect = instance;
+  button.addEventListener('click', () => {
+    const isOpen = root.classList.contains('is-open');
+    closeCustomSelect();
+    if (isOpen || select.disabled) return;
+    activeCustomSelect = instance;
+    root.classList.add('is-open');
+    button.setAttribute('aria-expanded', 'true');
+    menu.hidden = false;
+    const selected = menu.querySelector('[aria-selected="true"]');
+    if (selected) selected.scrollIntoView({ block: 'nearest' });
+  });
+  button.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeCustomSelect(instance);
+    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      button.click();
+      menu.querySelector('[aria-selected="true"], .custom-select__option')?.focus();
+    }
+  });
+  menu.addEventListener('keydown', (event) => {
+    const options = [...menu.querySelectorAll('.custom-select__option:not(:disabled)')];
+    const index = options.indexOf(document.activeElement);
+    if (event.key === 'Escape') {
+      closeCustomSelect(instance);
+      button.focus();
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const next = event.key === 'ArrowDown'
+        ? options[Math.min(index + 1, options.length - 1)]
+        : options[Math.max(index - 1, 0)];
+      next?.focus();
+    }
+  });
+  select.addEventListener('input', () => updateCustomSelect(select));
+  select.addEventListener('change', () => updateCustomSelect(select));
+  updateCustomSelect(select);
+}
+
+function enhanceClearableInput(input) {
+  const field = input?.closest('.field');
+  if (!field || input.__taxswitchInput || input.id === 'instrumentSearch' || input.id === 'currencyCode') return;
+  const type = (input.getAttribute('type') || 'text').toLowerCase();
+  const hasDecimalKeyboard = input.getAttribute('inputmode') === 'decimal';
+  if (!['text', 'search', 'password'].includes(type) || hasDecimalKeyboard) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'field-clear';
+  button.setAttribute('aria-label', `Clear ${field.querySelector('span')?.textContent || 'field'}`);
+  const icon = document.createElement('span');
+  icon.className = 'icon-x';
+  icon.setAttribute('aria-hidden', 'true');
+  button.appendChild(icon);
+  button.addEventListener('click', () => {
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.focus();
+  });
+  field.appendChild(button);
+  input.__taxswitchInput = { button };
+  const sync = () => field.classList.toggle('has-value', Boolean(input.value));
+  input.addEventListener('input', sync);
+  sync();
+}
+
+function refreshEnhancedControls() {
+  document.querySelectorAll('.field select').forEach(enhanceCustomSelect);
+  document.querySelectorAll('.field input').forEach(enhanceClearableInput);
+}
+
+document.addEventListener('click', (event) => {
+  if (activeCustomSelect && !activeCustomSelect.root.contains(event.target)) closeCustomSelect();
+});
 
 /* ── Wire up new event listeners ───────────────────────────────────── */
 function wireNewUI() {
@@ -1172,6 +1408,17 @@ function wireNewUI() {
     if (inp) {
       inp.addEventListener('input', () => { if (typeof calculate === 'function') calculate(); });
       inp.addEventListener('focus', () => inp.select());
+    }
+  });
+  [ui.positionCurrency, ui.taxCurrency].forEach(inp => {
+    if (inp) {
+      inp.addEventListener('input', () => {
+        inp.value = normalizeCurrencyCode(inp.value);
+        if (ui.fxRateNow) ui.fxRateNow.value = '';
+        if (typeof calculate === 'function') calculate();
+        queueCurrentFxFetch(true);
+      });
+      inp.addEventListener('blur', () => queueCurrentFxFetch(true));
     }
   });
   // Lots
@@ -1202,6 +1449,12 @@ function wireNewUI() {
   if (ui.addPositionBtn) ui.addPositionBtn.addEventListener('click', addCurrentPosition);
   if (ui.clearPositionsBtn) ui.clearPositionsBtn.addEventListener('click', clearPortfolioPositions);
   if (ui.runOptimizerBtn) ui.runOptimizerBtn.addEventListener('click', runPortfolioOptimizer);
+  [ui.optimizerObjective, ui.optimizerTolerance, ui.optimizerMaxTax, ui.optimizerMaxTurnover, ui.optimizerMinTrade, ui.optimizerAllowBuys, ui.optimizerAllowPartialLots].forEach(control => {
+    if (control) {
+      control.addEventListener('input', () => queueOptimizerRerun(true));
+      control.addEventListener('change', () => queueOptimizerRerun(true));
+    }
+  });
   if (ui.saveScenarioBtn) ui.saveScenarioBtn.addEventListener('click', () => saveScenario());
   if (ui.duplicateScenarioBtn) ui.duplicateScenarioBtn.addEventListener('click', duplicateScenario);
   if (ui.deleteScenarioBtn) ui.deleteScenarioBtn.addEventListener('click', deleteScenario);
@@ -1231,35 +1484,7 @@ function wireNewUI() {
   refreshAuthStatus();
   restoreLocalAlerts();
   renderPortfolioWorkspace();
-  // Price confirmation
-  if (ui.confirmPriceBtn) ui.confirmPriceBtn.addEventListener('click', () => {
-    if (pendingPrice !== null) {
-      const cpEl = document.getElementById('currentPrice');
-      if (cpEl) {
-        applyingMarketPrice = true;
-        cpEl.value = formatInputNumber(pendingPrice.price);
-        applyingMarketPrice = false;
-      }
-      if (pendingPrice.currency) {
-        const ccEl = document.getElementById('currencyCode');
-        if (ccEl) ccEl.value = normalizeCurrencyCode(pendingPrice.currency);
-        setCurrency(pendingPrice.currency);
-      }
-      ui.priceConfirmation.hidden = true;
-      ui.priceTimestamp.hidden = false;
-      ui.priceSourceLabel.textContent = pendingPrice.converted
-        ? `Converted from ${formatCurrency(pendingPrice.originalPrice, pendingPrice.originalCurrency)}`
-        : 'Latest market price';
-      ui.priceTimeLabel.textContent = `Fetched: ${new Date(pendingPrice.fetchedAt || Date.now()).toLocaleTimeString('de-DE')}`;
-      if (els?.refreshPriceBtn) els.refreshPriceBtn.hidden = false;
-      pendingPrice = null;
-      if (typeof calculate === 'function') calculate();
-    }
-  });
-  if (ui.cancelPriceBtn) ui.cancelPriceBtn.addEventListener('click', () => {
-    ui.priceConfirmation.hidden = true;
-    pendingPrice = null;
-  });
+  refreshEnhancedControls();
   // Install prompt
   setupInstallPrompt();
   // API status check

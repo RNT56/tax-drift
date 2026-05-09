@@ -10,7 +10,6 @@ const els = {
   selectedMeta: document.getElementById('selectedMeta'),
   useLatestPriceBtn: document.getElementById('useLatestPriceBtn'),
   refreshPriceBtn: document.getElementById('refreshPriceBtn'),
-  manualPriceBtn: document.getElementById('manualPriceBtn'),
   clearInstrumentBtn: document.getElementById('clearInstrumentBtn'),
   marketDataStatus: document.getElementById('marketDataStatus'),
   shares: document.getElementById('shares'),
@@ -81,6 +80,8 @@ let lastSignature = '';
 let selectedInstrument = null;
 let searchTimer = null;
 let searchAbort = null;
+let autoPriceTimer = null;
+let priceAbort = null;
 let applyingMarketPrice = false;
 
 /* parseLocaleNumber, normalizeCurrencyCode, formatCurrency, formatInputNumber,
@@ -506,6 +507,39 @@ function setMarketStatus(text, tone = '') {
   if (tone) els.marketDataStatus.classList.add(`is-${tone}`);
 }
 
+function canUseFunctionEndpoint() {
+  return window.location.protocol !== 'file:';
+}
+
+function setPriceLoading(isLoading, label = 'Apply latest') {
+  els.selectedInstrument?.classList.toggle('is-loading-price', Boolean(isLoading));
+  els.selectedInstrument?.setAttribute('aria-busy', String(Boolean(isLoading)));
+  if (els.useLatestPriceBtn) {
+    els.useLatestPriceBtn.disabled = Boolean(isLoading);
+    els.useLatestPriceBtn.textContent = isLoading ? 'Fetching live...' : label;
+  }
+  if (els.refreshPriceBtn) els.refreshPriceBtn.disabled = Boolean(isLoading);
+}
+
+function flashField(input, className = 'is-autofilled') {
+  const field = input?.closest?.('.field');
+  if (!field) return;
+  field.classList.remove(className);
+  void field.offsetWidth;
+  field.classList.add(className);
+  window.setTimeout(() => field.classList.remove(className), 1400);
+}
+
+function flashLiveResult() {
+  const targets = [els.selectedInstrument, els.resultsPanel].filter(Boolean);
+  targets.forEach((target) => {
+    target.classList.remove('is-live-updated');
+    void target.offsetWidth;
+    target.classList.add('is-live-updated');
+    window.setTimeout(() => target.classList.remove('is-live-updated'), 1200);
+  });
+}
+
 function instrumentInitials(item) {
   const symbol = String(item?.symbol || '?').replace(/[^A-Za-z0-9]/g, '');
   return symbol.slice(0, 2).toUpperCase() || '?';
@@ -663,33 +697,65 @@ function queueSymbolSearch() {
   searchTimer = setTimeout(() => searchSymbols(els.instrumentSearch.value), 260);
 }
 
-function selectInstrument(item) {
+function queueAutoPriceFetch() {
+  clearTimeout(autoPriceTimer);
+  autoPriceTimer = window.setTimeout(() => useLatestPrice({ auto: true }), 90);
+}
+
+function selectInstrument(item, options = {}) {
   selectedInstrument = { ...item };
   els.selectedInstrument.hidden = false;
+  els.selectedInstrument.classList.remove('is-loading-price', 'is-live-updated');
   els.instrumentResults.hidden = true;
   els.instrumentSearch.value = item.name || item.symbol || '';
   els.selectedAvatar.textContent = instrumentInitials(item);
   els.selectedName.textContent = item.name || item.symbol || 'Selected instrument';
   els.selectedMeta.textContent = instrumentSubtitle(item);
+  if (ui?.priceTimestamp) ui.priceTimestamp.hidden = true;
   if (els.refreshPriceBtn) els.refreshPriceBtn.hidden = true;
-  setMarketStatus('Selected instrument. Fetch a converted latest price or enter your price manually.');
+  if (canUseFunctionEndpoint() && !options.skipAutoPrice) {
+    setMarketStatus('Selected. Pulling the latest market price automatically...');
+    queueAutoPriceFetch();
+  } else {
+    setMarketStatus(canUseFunctionEndpoint()
+      ? 'Selected instrument. Current price stays manual until refreshed.'
+      : 'Selected instrument. Live auto-price needs Netlify dev or deploy.');
+  }
   calculate();
 }
 
 function clearSelectedInstrument({ clearSearch = true } = {}) {
+  clearTimeout(autoPriceTimer);
+  if (priceAbort) priceAbort.abort();
+  priceAbort = null;
   selectedInstrument = null;
   els.selectedInstrument.hidden = true;
+  els.selectedInstrument.classList.remove('is-loading-price', 'is-live-updated');
+  els.selectedInstrument.removeAttribute('aria-busy');
   els.instrumentResults.hidden = true;
   if (els.refreshPriceBtn) els.refreshPriceBtn.hidden = true;
+  if (ui?.priceTimestamp) ui.priceTimestamp.hidden = true;
   if (clearSearch) els.instrumentSearch.value = '';
   setMarketStatus('Selected instruments are metadata only until you fill or fetch a current price.');
 }
 
-async function useLatestPrice() {
+async function useLatestPrice(options = {}) {
   if (!selectedInstrument?.symbol) return;
+  const auto = options?.auto === true;
+
+  if (!canUseFunctionEndpoint()) {
+    setMarketStatus('Live price needs Netlify dev or deploy. Enter the current price manually.', auto ? 'warning' : 'error');
+    return;
+  }
 
   const targetCurrency = normalizeCurrencyCode(els.currencyCode.value);
   const sourceCurrency = normalizeCurrencyCode(selectedInstrument.currency || targetCurrency);
+  const requestKey = [
+    selectedInstrument.symbol,
+    selectedInstrument.exchange || '',
+    selectedInstrument.providerSymbol || '',
+    targetCurrency
+  ].join('|');
   const params = new URLSearchParams({
     symbol: selectedInstrument.symbol,
     exchange: selectedInstrument.exchange || '',
@@ -704,12 +770,16 @@ async function useLatestPrice() {
     alphavantageSymbol: selectedInstrument.alphavantageSymbol || ''
   });
 
-  els.useLatestPriceBtn.disabled = true;
-  if (els.refreshPriceBtn) els.refreshPriceBtn.disabled = true;
-  setMarketStatus('Fetching latest price…');
+  if (priceAbort) priceAbort.abort();
+  priceAbort = new AbortController();
+  const currentAbort = priceAbort;
+  setPriceLoading(true);
+  setMarketStatus(auto ? 'Selected. Pulling the latest market price automatically...' : 'Fetching latest price...');
 
   try {
-    const response = await fetch(`/.netlify/functions/get-price?${params.toString()}`);
+    const response = await fetch(`/.netlify/functions/get-price?${params.toString()}`, {
+      signal: currentAbort.signal
+    });
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok || !Number.isFinite(Number(payload.price))) {
@@ -718,59 +788,63 @@ async function useLatestPrice() {
       return;
     }
 
+    const activeKey = [
+      selectedInstrument?.symbol || '',
+      selectedInstrument?.exchange || '',
+      selectedInstrument?.providerSymbol || '',
+      normalizeCurrencyCode(els.currencyCode.value)
+    ].join('|');
+    if (activeKey !== requestKey) return;
+
     const price = Number(payload.price);
     const returnedCurrency = normalizeCurrencyCode(payload.currency || targetCurrency);
     const converted = Boolean(payload.converted);
-    const convertedText = converted && Number.isFinite(Number(payload.originalPrice))
-      ? `Converted from ${formatCurrency(Number(payload.originalPrice), payload.originalCurrency || sourceCurrency)} at ${formatInputNumber(Number(payload.fxRate))}`
-      : `Ready to apply in ${returnedCurrency}`;
-
-    if (ui && ui.priceConfirmation) {
-      pendingPrice = {
-        price,
-        currency: returnedCurrency,
-        source: 'Market data',
-        converted,
-        originalPrice: Number(payload.originalPrice),
-        originalCurrency: payload.originalCurrency,
-        fxRate: Number(payload.fxRate),
-        fetchedAt: payload.fetchedAt || new Date().toISOString()
-      };
-      ui.confirmPrice.textContent = formatCurrency(price, returnedCurrency);
-      if (ui.confirmPriceMeta) ui.confirmPriceMeta.textContent = convertedText;
-      ui.priceConfirmation.hidden = false;
-      setMarketStatus(`Latest price ready: ${formatCurrency(price, returnedCurrency)}. Confirm to use it.`, 'success');
-    } else {
-      applyingMarketPrice = true;
-      els.currentPrice.value = formatInputNumber(price);
-      applyingMarketPrice = false;
-      setCurrency(returnedCurrency);
-      selectedInstrument.currency = returnedCurrency;
-      setMarketStatus(`Filled latest ${returnedCurrency} market price.`, 'success');
-      calculate();
+    pendingPrice = {
+      price,
+      currency: returnedCurrency,
+      source: 'Market data',
+      converted,
+      originalPrice: Number(payload.originalPrice),
+      originalCurrency: payload.originalCurrency,
+      fxRate: Number(payload.fxRate),
+      fetchedAt: payload.fetchedAt || new Date().toISOString()
+    };
+    applyingMarketPrice = true;
+    els.currentPrice.value = formatInputNumber(price);
+    applyingMarketPrice = false;
+    setCurrency(returnedCurrency);
+    selectedInstrument.priceCurrency = returnedCurrency;
+    if (ui?.priceTimestamp) {
+      ui.priceTimestamp.hidden = false;
+      if (ui.priceSourceLabel) {
+        ui.priceSourceLabel.textContent = converted && Number.isFinite(Number(payload.originalPrice))
+          ? `Converted from ${formatCurrency(Number(payload.originalPrice), payload.originalCurrency || sourceCurrency)}`
+          : 'Latest market price';
+      }
+      if (ui.priceTimeLabel) {
+        ui.priceTimeLabel.textContent = `Fetched: ${new Date(pendingPrice.fetchedAt).toLocaleTimeString('de-DE')}`;
+      }
     }
+    if (els.refreshPriceBtn) els.refreshPriceBtn.hidden = false;
+    flashField(els.currentPrice);
+    flashLiveResult();
+    setMarketStatus(`${auto ? 'Auto-applied' : 'Applied'} latest ${returnedCurrency} market price: ${formatCurrency(price, returnedCurrency)}.`, 'success');
+    calculate();
   } catch (error) {
+    if (error.name === 'AbortError') return;
     setMarketStatus('Live price unavailable in this environment. Enter the current price manually.', 'warning');
   } finally {
-    els.useLatestPriceBtn.disabled = false;
-    if (els.refreshPriceBtn) els.refreshPriceBtn.disabled = false;
+    if (priceAbort === currentAbort) {
+      priceAbort = null;
+      setPriceLoading(false);
+    }
   }
-}
-
-function focusManualPriceOverride() {
-  if (ui?.priceConfirmation) {
-    ui.priceConfirmation.hidden = true;
-    pendingPrice = null;
-  }
-  els.currentPrice.focus();
-  els.currentPrice.select();
-  setMarketStatus('Manual override active. Enter the current price in your calculation currency.', 'warning');
 }
 
 function markManualPriceOverride() {
   if (applyingMarketPrice || !selectedInstrument) return;
-  if (ui?.priceConfirmation) ui.priceConfirmation.hidden = true;
   if (ui?.priceTimestamp) ui.priceTimestamp.hidden = true;
+  pendingPrice = null;
   if (els.refreshPriceBtn) els.refreshPriceBtn.hidden = false;
   setMarketStatus('Manual price override active. Refresh latest price anytime.', 'warning');
 }
@@ -808,7 +882,6 @@ function clearInputs() {
     if (ui.foreignTaxCreditable) ui.foreignTaxCreditable.value = '';
     if (ui.priorTaxedVorabpauschale) ui.priorTaxedVorabpauschale.value = '';
     if (ui.workspaceName) ui.workspaceName.value = '';
-    if (ui.priceConfirmation) ui.priceConfirmation.hidden = true;
     if (ui.priceTimestamp) ui.priceTimestamp.hidden = true;
   }
   if (typeof clearBrokerImport === 'function') clearBrokerImport();
@@ -859,7 +932,6 @@ els.clearInstrumentSearch.addEventListener('click', () => {
 els.clearInstrumentBtn.addEventListener('click', () => clearSelectedInstrument({ clearSearch: true }));
 els.useLatestPriceBtn.addEventListener('click', useLatestPrice);
 if (els.refreshPriceBtn) els.refreshPriceBtn.addEventListener('click', useLatestPrice);
-if (els.manualPriceBtn) els.manualPriceBtn.addEventListener('click', focusManualPriceOverride);
 
 els.includeTaxOnNew.addEventListener('change', calculate);
 els.resetBtn.addEventListener('click', clearInputs);

@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'taxswitch-v5';
+const CACHE_VERSION = 'taxswitch-v6';
 const SHELL_ASSETS = [
   '/',
   '/index.html',

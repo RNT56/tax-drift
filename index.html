@@ -22,11 +22,15 @@
     <header class="hero" aria-labelledby="pageTitle">
       <div class="hero__topline">
         <div class="brand-mark" aria-hidden="true">
-          <span></span>
-          <span></span>
-          <span></span>
+          <svg viewBox="0 0 48 48" focusable="false">
+            <path class="brand-mark__tax" d="M12.5 14.5H29M20.75 14.5V31.5" />
+            <path class="brand-mark__hurdle" d="M11.5 33.5H25.5" />
+            <path class="brand-mark__switch" d="M23.5 33.5H25.5C32.1 33.5 37 28.6 37 22V15" />
+            <path class="brand-mark__arrow" d="M31.5 20.5L37 15L42.5 20.5" />
+            <circle class="brand-mark__node" cx="12.5" cy="33.5" r="3" />
+          </svg>
         </div>
-        <strong>TaxSwitch</strong>
+        <strong class="brand-wordmark">TaxSwitch</strong>
         <div class="app-status-group" aria-label="App status">
           <span id="apiStatusChip" class="hero-pill hero-pill--status" aria-live="polite">
             <span class="status-dot status-dot--checking"></span>
@@ -131,25 +135,11 @@
             </div>
           </div>
           <div class="selected-instrument__actions">
-            <button id="useLatestPriceBtn" type="button" class="primary-button">Use latest price</button>
+            <button id="useLatestPriceBtn" type="button" class="primary-button">Apply latest</button>
             <button id="refreshPriceBtn" type="button" class="icon-button icon-button--compact" aria-label="Refresh latest price" hidden>
               <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true"><path d="M15 9A6 6 0 0 1 4.76 13.24M3 9A6 6 0 0 1 13.24 4.76M13.5 2.25V5.25H10.5M4.5 15.75V12.75H7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </button>
-            <button id="manualPriceBtn" type="button" class="ghost-button ghost-button--tight">Manual price</button>
             <button id="clearInstrumentBtn" type="button" class="ghost-button ghost-button--tight">Clear</button>
-          </div>
-
-          <!-- Price confirmation dialog -->
-          <div id="priceConfirmation" class="price-confirmation" hidden>
-            <div class="price-confirmation__value">
-              <span>Latest price found:</span>
-              <strong id="confirmPrice">—</strong>
-              <small id="confirmPriceMeta">—</small>
-            </div>
-            <div class="price-confirmation__actions">
-              <button id="confirmPriceBtn" type="button" class="primary-button primary-button--small">Use this price</button>
-              <button id="cancelPriceBtn" type="button" class="ghost-button ghost-button--tight">Cancel</button>
-            </div>
           </div>
 
           <!-- Price timestamp -->
