@@ -29,6 +29,7 @@ const els = {
   targetPriceTimeLabel: document.getElementById('targetPriceTimeLabel'),
   targetMarketDataStatus: document.getElementById('targetMarketDataStatus'),
   switchTargetReadiness: document.getElementById('switchTargetReadiness'),
+  switchProjectionStatus: document.getElementById('switchProjectionStatus'),
   switchAutoSizing: document.getElementById('switchAutoSizing'),
   switchTargetPanel: document.querySelector('.switch-target-panel'),
   switchOnlyFields: [...document.querySelectorAll('.field--switch-only')],
@@ -403,11 +404,26 @@ function instrumentDisplayName(instrument, fallback = 'Manual target') {
 }
 
 function renderSwitchReadiness(input, switchOutput) {
-  if (!els.switchTargetReadiness) return;
-  els.switchTargetReadiness.classList.remove('is-ready', 'is-live');
   if (els.useLatestTargetPriceBtn) {
     els.useLatestTargetPriceBtn.hidden = Boolean(selectedTargetInstrument && switchOutput.hasBuyPrice);
   }
+
+  if (els.switchProjectionStatus) {
+    els.switchProjectionStatus.classList.remove('is-ready', 'is-live');
+    if (switchOutput.hasProjection && switchOutput.hasBuyPrice) {
+      els.switchProjectionStatus.textContent = 'Projection ready';
+      els.switchProjectionStatus.classList.add('is-live');
+    } else if (switchOutput.hasProjection) {
+      els.switchProjectionStatus.textContent = 'Add buy price';
+      els.switchProjectionStatus.classList.add('is-ready');
+    } else {
+      els.switchProjectionStatus.textContent = 'Target or gain needed';
+      els.switchProjectionStatus.classList.add('is-ready');
+    }
+  }
+
+  if (!els.switchTargetReadiness) return;
+  els.switchTargetReadiness.classList.remove('is-ready', 'is-live');
   if (selectedTargetInstrument && switchOutput.hasBuyPrice && switchOutput.hasProjection) {
     els.switchTargetReadiness.textContent = 'Ready';
     els.switchTargetReadiness.classList.add('is-live');

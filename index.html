@@ -14,7 +14,7 @@
   <link rel="manifest" href="site.webmanifest">
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=13">
   <script src="https://identity.netlify.com/v1/netlify-identity-widget.js" defer></script>
 </head>
 <body>
@@ -461,17 +461,6 @@
             <em>%</em>
           </label>
 
-          <label class="field field--switch-only" hidden>
-            <span>Target price</span>
-            <input id="switchTargetPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 720,00" aria-label="Expected switch target sell price per share">
-            <em><span class="currencyUnit">EUR</span> / share</em>
-          </label>
-
-          <label class="field field--switch-only" hidden>
-            <span>Expected new gain</span>
-            <input id="expectedNewReturn" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 12" aria-label="Expected switch stock gain">
-            <em>%</em>
-          </label>
         </div>
 
         <div class="switch-target-panel" aria-labelledby="switchTargetTitle" hidden>
@@ -547,6 +536,30 @@
 
             <p id="targetMarketDataStatus" class="market-status">Select a target to fetch its current buy price.</p>
           </article>
+
+          <div class="switch-projection-panel" aria-labelledby="switchProjectionTitle">
+            <div class="switch-projection-panel__header">
+              <div>
+                <span>Required projection</span>
+                <strong id="switchProjectionTitle">Target or expected gain</strong>
+              </div>
+              <span id="switchProjectionStatus" class="switch-projection-status">Target or gain needed</span>
+            </div>
+
+            <div class="field-grid field-grid--switch-assumptions">
+              <label class="field field--projection-required">
+                <span>Target sell price</span>
+                <input id="switchTargetPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 720,00" aria-label="Expected switch target sell price per share" aria-describedby="switchProjectionStatus">
+                <em><span class="currencyUnit">EUR</span> / share</em>
+              </label>
+
+              <label class="field field--projection-required">
+                <span>Expected gain</span>
+                <input id="expectedNewReturn" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 12" aria-label="Expected switch stock gain" aria-describedby="switchProjectionStatus">
+                <em>%</em>
+              </label>
+            </div>
+          </div>
 
           <div id="switchAutoSizing" class="switch-auto-sizing" aria-live="polite"></div>
 
@@ -1182,6 +1195,6 @@
   <script src="app-decision.js" defer></script>
   <script src="app-research.js" defer></script>
   <script src="app-ui.js" defer></script>
-  <script src="app.js" defer></script>
+  <script src="app.js?v=13" defer></script>
 </body>
 </html>

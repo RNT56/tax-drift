@@ -1049,6 +1049,7 @@ input[type="search"]:focus-visible {
 }
 
 .switch-target-panel__header span,
+.switch-projection-panel__header span,
 .switch-asset-data__header span,
 .switch-ticket__header span,
 .switch-comparison-table__header span,
@@ -1092,6 +1093,56 @@ input[type="search"]:focus-visible {
   color: #087443;
   background: rgba(18, 183, 106, 0.11);
   box-shadow: none;
+}
+
+.switch-projection-panel {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 40, 0.08);
+}
+
+.switch-projection-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 9px;
+}
+
+.switch-projection-panel__header strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.95rem;
+}
+
+.switch-projection-status {
+  flex: 0 0 auto;
+  max-width: 48%;
+  overflow: hidden;
+  padding: 7px 9px;
+  border-radius: 999px;
+  color: var(--blue-deep);
+  background: rgba(43, 99, 255, 0.10);
+  font-size: 0.7rem;
+  font-weight: 820;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switch-projection-status.is-live {
+  color: #087443;
+  background: rgba(18, 183, 106, 0.11);
+}
+
+.field-grid--switch-assumptions {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.field--projection-required {
+  background: #fff;
 }
 
 .instrument-search--target {
@@ -4066,6 +4117,7 @@ main {
 
 @media (max-width: 620px) {
   .field-grid--switch-target,
+  .field-grid--switch-assumptions,
   .switch-asset-data__grid,
   .switch-ticket__grid,
   .switch-mapping__grid {
