@@ -276,4 +276,11 @@ function close(actual, expected, epsilon = 1e-6) {
   close(higherTarget.targetInvested, sw.targetInvested);
 }
 
-console.log('Math smoke tests passed. (13 tests)');
+// ── Test 14: Current holding target price derives old return ──
+{
+  close(TaxCore.returnFromTargetPrice(150, 180), 0.2);
+  assert.ok(Number.isNaN(TaxCore.returnFromTargetPrice(0, 180)));
+  assert.ok(Number.isNaN(TaxCore.returnFromTargetPrice(150, 0)));
+}
+
+console.log('Math smoke tests passed. (14 tests)');

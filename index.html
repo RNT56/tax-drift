@@ -542,10 +542,17 @@
           </label>
 
           <label class="field">
-            <span>Old return</span>
-            <input id="expectedOldReturn" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 0" aria-label="Expected old stock return">
-            <em>%</em>
+            <span>Old target price</span>
+            <input id="targetSellPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="current price" aria-label="Expected sell price for current holding">
+            <em><span class="currencyUnit">EUR</span> / share</em>
           </label>
+
+          <div class="field field--computed" aria-live="polite">
+            <span>Old return</span>
+            <strong id="computedOldReturn">0,00%</strong>
+            <em id="computedOldReturnHint">Flat hold assumption</em>
+            <input id="expectedOldReturn" type="hidden">
+          </div>
 
         </div>
 
@@ -1188,11 +1195,6 @@
         <details class="premium-details decision-inputs">
           <summary>Decision assumptions</summary>
           <div class="field-grid field-grid--two">
-            <label class="field">
-              <span>Target sell price</span>
-              <input id="targetSellPrice" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 517" aria-label="Target sell price">
-              <em><span class="currencyUnit">EUR</span> / share</em>
-            </label>
             <label class="field">
               <span>Target probability</span>
               <input id="targetReachProbability" type="text" inputmode="decimal" autocomplete="off" placeholder="55" aria-label="Probability target is reached">

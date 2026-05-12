@@ -430,6 +430,26 @@ body.is-switch-mode .field--rebuy-only {
   letter-spacing: 0;
 }
 
+.field--computed {
+  align-items: flex-start;
+}
+
+.field--computed strong {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 1.42rem;
+  font-weight: 780;
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.field--computed input[type="hidden"] {
+  display: none;
+}
+
 .field input:focus,
 .field input:focus-visible,
 .field select:focus,
@@ -4372,6 +4392,11 @@ main {
 }
 
 .field input {
+  font-size: 1.18rem;
+  line-height: 1.1;
+}
+
+.field--computed strong {
   font-size: 1.18rem;
   line-height: 1.1;
 }

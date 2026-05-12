@@ -556,6 +556,11 @@ function saveWorkspaceLocal(silent = false) {
 
 function applyWorkspaceSnapshot(workspace) {
   const scenario = workspace?.scenarios?.[0]?.settings || workspace?.input || {};
+  const migratedTargetSellPrice = Number.isFinite(scenario.targetSellPrice)
+    ? scenario.targetSellPrice
+    : (Number.isFinite(scenario.expectedOldReturn) && Number.isFinite(scenario.currentPrice) && scenario.currentPrice > 0
+      ? scenario.currentPrice * (1 + scenario.expectedOldReturn)
+      : undefined);
   Object.entries({
     shares: scenario.shares,
     buyPrice: scenario.buyPrice,
@@ -563,7 +568,8 @@ function applyWorkspaceSnapshot(workspace) {
     taxRate: Number.isFinite(scenario.taxRate) ? scenario.taxRate * 100 : undefined,
     transactionCost: scenario.transactionCost,
     rebuyPrice: scenario.rebuyPrice,
-    expectedOldReturn: Number.isFinite(scenario.expectedOldReturn) ? scenario.expectedOldReturn * 100 : undefined,
+    targetSellPrice: migratedTargetSellPrice,
+    expectedOldReturn: Number.isFinite(migratedTargetSellPrice) ? undefined : (Number.isFinite(scenario.expectedOldReturn) ? scenario.expectedOldReturn * 100 : undefined),
     expectedNewReturn: Number.isFinite(scenario.expectedNewReturn) ? scenario.expectedNewReturn * 100 : undefined,
     switchBuyPrice: scenario.switchBuyPrice,
     switchTargetPrice: scenario.switchTargetPrice,
@@ -574,7 +580,6 @@ function applyWorkspaceSnapshot(workspace) {
     taxCurrency: scenario.taxCurrency,
     fxRateBuy: scenario.fxRateBuy,
     fxRateNow: scenario.fxRateNow,
-    targetSellPrice: scenario.targetSellPrice,
     targetReachProbability: Number.isFinite(scenario.targetReachProbability) ? scenario.targetReachProbability * 100 : undefined,
     freshCashAmount: scenario.freshCashAmount,
     cashReserve: scenario.cashReserve,
@@ -2494,7 +2499,7 @@ function wireNewUI() {
   if (ui.exportJsonBtn) ui.exportJsonBtn.addEventListener('click', exportAuditJson);
   if (ui.exportHtmlBtn) ui.exportHtmlBtn.addEventListener('click', exportAuditHtml);
   if (ui.addAlertBtn) ui.addAlertBtn.addEventListener('click', addLocalAlert);
-  [ui.targetSellPrice, ui.targetReachProbability, ui.freshCashAmount, ui.cashReserve, ui.maxTolerableLoss, ui.timeHorizonYears, ui.sectorExposure, ui.countryExposure, ui.researchThesis].forEach(control => {
+  [ui.targetReachProbability, ui.freshCashAmount, ui.cashReserve, ui.maxTolerableLoss, ui.timeHorizonYears, ui.sectorExposure, ui.countryExposure, ui.researchThesis].forEach(control => {
     if (control) {
       control.addEventListener('input', () => { if (typeof calculate === 'function') calculate(); });
       control.addEventListener('focus', () => control.select?.());

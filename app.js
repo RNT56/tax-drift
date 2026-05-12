@@ -41,7 +41,10 @@ const els = {
   taxRate: document.getElementById('taxRate'),
   transactionCost: document.getElementById('transactionCost'),
   rebuyPrice: document.getElementById('rebuyPrice'),
+  targetSellPrice: document.getElementById('targetSellPrice'),
   expectedOldReturn: document.getElementById('expectedOldReturn'),
+  computedOldReturn: document.getElementById('computedOldReturn'),
+  computedOldReturnHint: document.getElementById('computedOldReturnHint'),
   expectedNewReturn: document.getElementById('expectedNewReturn'),
   switchBuyPrice: document.getElementById('switchBuyPrice'),
   switchTargetPrice: document.getElementById('switchTargetPrice'),
@@ -163,8 +166,13 @@ function getInputs() {
   const taxRate = Number.isFinite(taxRateParsed) ? clampTaxRate(taxRateParsed / 100) : NaN;
   const transactionCost = Math.max(parseLocaleNumber(els.transactionCost.value) || 0, 0);
   const rebuyPrice = parseLocaleNumber(els.rebuyPrice.value);
+  const targetSellPriceVal = parseLocaleNumber(els.targetSellPrice?.value);
+  const targetSellPrice = Number.isFinite(targetSellPriceVal) ? Math.max(targetSellPriceVal, 0) : NaN;
+  const expectedOldFromTarget = returnFromTargetPrice(currentPrice, targetSellPrice);
   const expectedOldParsed = parseLocaleNumber(els.expectedOldReturn.value);
-  const expectedOldReturn = Number.isFinite(expectedOldParsed) ? clampReturn(expectedOldParsed / 100) : 0;
+  const expectedOldReturn = Number.isFinite(expectedOldFromTarget)
+    ? expectedOldFromTarget
+    : (Number.isFinite(expectedOldParsed) ? clampReturn(expectedOldParsed / 100) : 0);
   const expectedNewReturnParsed = parseLocaleNumber(els.expectedNewReturn.value);
   let expectedNewReturn = Number.isFinite(expectedNewReturnParsed) ? clampReturn(expectedNewReturnParsed / 100) : NaN;
   const switchBuyPriceParsed = parseLocaleNumber(els.switchBuyPrice?.value);
@@ -184,7 +192,6 @@ function getInputs() {
   const fxRateNowVal = ui ? parseLocaleNumber(ui.fxRateNow?.value) : NaN;
   const pvVal = ui ? parseLocaleNumber(ui.portfolioValue?.value) : NaN;
   const twVal = ui ? parseLocaleNumber(ui.targetWeight?.value) : NaN;
-  const targetSellPriceVal = ui ? parseLocaleNumber(ui.targetSellPrice?.value) : NaN;
   const targetReachProbabilityVal = ui ? parseLocaleNumber(ui.targetReachProbability?.value) : NaN;
   const freshCashAmountVal = ui ? parseLocaleNumber(ui.freshCashAmount?.value) : NaN;
   const cashReserveVal = ui ? parseLocaleNumber(ui.cashReserve?.value) : NaN;
@@ -218,7 +225,10 @@ function getInputs() {
     fxRateNow: fxRateNowVal,
     portfolioValue: pvVal,
     targetWeight: twVal,
-    targetSellPrice: Number.isFinite(targetSellPriceVal) ? Math.max(targetSellPriceVal, 0) : NaN,
+    targetSellPrice,
+    expectedOldReturnSource: Number.isFinite(expectedOldFromTarget)
+      ? 'target-price'
+      : (Number.isFinite(expectedOldParsed) ? 'legacy-return' : 'flat'),
     targetReachProbability: Number.isFinite(targetReachProbabilityVal) ? Math.min(Math.max(targetReachProbabilityVal / 100, 0), 1) : 0.5,
     freshCashAmount: Number.isFinite(freshCashAmountVal) ? Math.max(freshCashAmountVal, 0) : 0,
     cashReserve: Number.isFinite(cashReserveVal) ? Math.max(cashReserveVal, 0) : 0,
@@ -257,6 +267,16 @@ function setText(element, value) {
     void element.offsetWidth;
     element.classList.add('pulse');
   }
+}
+
+function updateComputedOldReturnDisplay(input) {
+  if (!els.computedOldReturn) return;
+  setText(els.computedOldReturn, formatPercent(input.expectedOldReturn));
+  if (!els.computedOldReturnHint) return;
+  const hint = input.expectedOldReturnSource === 'target-price'
+    ? 'From old target price'
+    : (input.expectedOldReturnSource === 'legacy-return' ? 'Restored return' : 'Flat hold assumption');
+  els.computedOldReturnHint.textContent = hint;
 }
 
 function setSignedClass(element, value) {
@@ -576,6 +596,7 @@ function renderSwitchComparison(input, output, switchOutput) {
   const targetShareText = switchOutput.hasBuyPrice
     ? formatShares(switchOutput.targetShares)
     : money(switchOutput.targetInvested);
+  const oldTargetPriceText = Number.isFinite(input.targetSellPrice) && input.targetSellPrice > 0 ? money(input.targetSellPrice) : '—';
   const targetPriceText = Number.isFinite(switchOutput.projectedTargetPrice) ? money(switchOutput.projectedTargetPrice) : '—';
   const valueClass = (value, positiveIsGood = true) => {
     if (!Number.isFinite(value) || value === 0) return '';
@@ -586,8 +607,8 @@ function renderSwitchComparison(input, output, switchOutput) {
     { label: 'Start value', hold: money(output.sellValue), sw: money(switchOutput.investableCash) },
     { label: 'Realized tax', hold: money(0), sw: money(output.taxDue) },
     { label: 'Costs', hold: money(0), sw: money(switchOutput.sellCost + switchOutput.buyCost) },
-    { label: 'Current buy price', hold: '—', sw: switchOutput.hasBuyPrice ? money(switchOutput.buyPrice) : '—' },
-    { label: 'Target price', hold: '—', sw: targetPriceText },
+    { label: 'Current buy price', hold: money(input.currentPrice), sw: switchOutput.hasBuyPrice ? money(switchOutput.buyPrice) : '—' },
+    { label: 'Target price', hold: oldTargetPriceText, sw: targetPriceText },
     { label: 'Shares', hold: formatShares(output.sellShares), sw: targetShareText },
     { label: `Expected return (${horizon}y)`, hold: formatPercent(input.expectedOldReturn), sw: formatPercent(switchOutput.expectedReturn) },
     { label: 'Future value', hold: money(output.futureValueOld), sw: money(switchOutput.futureValueNew) },
@@ -1358,6 +1379,7 @@ function calculate() {
   syncModeSpecificInputs();
   setCurrency(els.currencyCode.value);
   const input = getInputs();
+  updateComputedOldReturnDisplay(input);
   const output = calculateValues(input);
   const switchOutput = calculateSwitchUpgrade(input, output);
   const signature = JSON.stringify(input);
@@ -2236,6 +2258,18 @@ function markManualTargetPriceOverride() {
   renderSwitchAssetData();
 }
 
+function migrateLegacyOldReturnToTargetPrice() {
+  const oldReturn = parseLocaleNumber(els.expectedOldReturn?.value);
+  const currentPrice = parseLocaleNumber(els.currentPrice?.value);
+  const targetPrice = parseLocaleNumber(els.targetSellPrice?.value);
+  if (!Number.isFinite(oldReturn) || Number.isFinite(targetPrice) || !Number.isFinite(currentPrice) || currentPrice <= 0) return;
+  const migratedTargetPrice = currentPrice * (1 + clampReturn(oldReturn / 100));
+  if (Number.isFinite(migratedTargetPrice) && migratedTargetPrice > 0 && els.targetSellPrice) {
+    els.targetSellPrice.value = formatInputNumber(migratedTargetPrice);
+    els.expectedOldReturn.value = '';
+  }
+}
+
 function clearInputs() {
   els.shares.value = '';
   els.buyPrice.value = '';
@@ -2244,6 +2278,7 @@ function clearInputs() {
   els.taxRate.value = '26,375';
   els.transactionCost.value = '';
   els.rebuyPrice.value = '';
+  if (els.targetSellPrice) els.targetSellPrice.value = '';
   els.expectedOldReturn.value = '';
   els.expectedNewReturn.value = '';
   if (els.switchBuyPrice) els.switchBuyPrice.value = '';
@@ -2323,13 +2358,20 @@ function clearInputs() {
   els.taxRate,
   els.transactionCost,
   els.rebuyPrice,
-  els.expectedOldReturn,
   els.switchBuyCost,
   els.switchHorizonYears
 ].filter(Boolean).forEach((input) => {
   input.addEventListener('input', calculate);
   input.addEventListener('focus', () => input.select());
 });
+
+if (els.targetSellPrice) {
+  els.targetSellPrice.addEventListener('input', () => {
+    if (els.expectedOldReturn) els.expectedOldReturn.value = '';
+    calculate();
+  });
+  els.targetSellPrice.addEventListener('focus', () => els.targetSellPrice.select());
+}
 
 els.currentPrice.addEventListener('input', markManualPriceOverride);
 if (els.switchBuyPrice) {
@@ -2474,6 +2516,7 @@ setCurrency(els.currencyCode.value);
 // Initialize: URL state > localStorage > fresh
 const urlRestored = typeof decodeStateFromURL === 'function' && decodeStateFromURL();
 if (!urlRestored && typeof restoreFromLocalStorage === 'function') restoreFromLocalStorage();
+migrateLegacyOldReturnToTargetPrice();
 syncSwitchProjectionFromActiveAssumption();
 if (els.switchBuyPrice?.value || els.switchTargetPrice?.value || els.expectedNewReturn?.value || selectedTargetInstrument) {
   setMode('switch');

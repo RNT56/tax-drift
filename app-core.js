@@ -51,6 +51,13 @@ function finiteNumber(value, fallback = NaN) {
 function clampTaxRate(v) { return Number.isFinite(v) ? Math.min(Math.max(v, 0), 0.95) : 0; }
 function clampReturn(v) { return Number.isFinite(v) ? Math.max(v, -0.9999) : NaN; }
 
+function returnFromTargetPrice(currentPrice, targetPrice) {
+  const current = finiteNumber(currentPrice, NaN);
+  const target = finiteNumber(targetPrice, NaN);
+  if (!Number.isFinite(current) || current <= 0 || !Number.isFinite(target) || target <= 0) return NaN;
+  return clampReturn(target / current - 1);
+}
+
 /* ── Tax math ──────────────────────────────────────────────────────── */
 function afterTaxFutureValue(cash, grossReturn, taxRate, includeTax) {
   if (!Number.isFinite(grossReturn)) return NaN;
@@ -378,14 +385,16 @@ function localSearchSymbols(query, limit = 10) {
 }
 
 /* ── URL state encoding/decoding ───────────────────────────────────── */
-const STATE_KEYS = ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','includeTaxOnNew','currencyCode','sellPct','portfolioValue','targetWeight','fxMode','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','switchBuyPrice','switchTargetPrice','switchBuyCost','switchHorizonYears','switchAllowFractional'];
+const STATE_KEYS = ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','targetSellPrice','expectedOldReturn','expectedNewReturn','includeTaxOnNew','currencyCode','sellPct','portfolioValue','targetWeight','fxMode','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','switchBuyPrice','switchTargetPrice','switchBuyCost','switchHorizonYears','switchAllowFractional'];
 
 function encodeStateToURL(els) {
   const p = new URLSearchParams();
   const val = (id) => document.getElementById(id)?.value || '';
   p.set('shares', val('shares')); p.set('buy', val('buyPrice')); p.set('current', val('currentPrice'));
   p.set('tax', val('taxRate')); p.set('costs', val('transactionCost')); p.set('rebuy', val('rebuyPrice'));
-  p.set('oldRet', val('expectedOldReturn')); p.set('newRet', val('expectedNewReturn'));
+  if (val('targetSellPrice')) p.set('oldTargetPrice', val('targetSellPrice'));
+  if (!val('targetSellPrice')) p.set('oldRet', val('expectedOldReturn'));
+  p.set('newRet', val('expectedNewReturn'));
   p.set('taxNew', document.getElementById('includeTaxOnNew')?.checked ? '1' : '0');
   p.set('ccy', val('currencyCode'));
   const activeSell = document.querySelector('.chip--sell.is-active');
@@ -415,6 +424,7 @@ function decodeStateFromURL() {
   const set = (id, key) => { const v = p.get(key); if (v && document.getElementById(id)) document.getElementById(id).value = v; };
   set('shares', 'shares'); set('buyPrice', 'buy'); set('currentPrice', 'current');
   set('taxRate', 'tax'); set('transactionCost', 'costs'); set('rebuyPrice', 'rebuy');
+  set('targetSellPrice', 'oldTargetPrice');
   set('expectedOldReturn', 'oldRet'); set('expectedNewReturn', 'newRet');
   set('currencyCode', 'ccy');
   const taxNew = p.get('taxNew');
@@ -448,6 +458,8 @@ function generateCSV(input, output) {
     ['Position'],
     ['Shares', input.shares], ['Buy price', input.buyPrice], ['Current price', input.currentPrice],
     ['Currency', input.currencyCode],
+    ['Old target price', input.targetSellPrice],
+    ['Old return', formatPercent(input.expectedOldReturn)],
     [],
     ['Tax & Costs'],
     ['Tax rate', `${(input.taxRate * 100).toFixed(3)}%`], ['Transaction costs', input.transactionCost],
@@ -490,6 +502,7 @@ if (typeof module === 'object' && module.exports) {
     formatShares,
     clampTaxRate,
     clampReturn,
+    returnFromTargetPrice,
     afterTaxFutureValue,
     requiredGrossReturn,
     hurdleTargetValue,
