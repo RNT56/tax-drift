@@ -1,7 +1,7 @@
 const { handleApi, json, methodNotAllowed, parseJsonBody } = require('../lib/api-helpers');
 const { requirePremiumUser } = require('../lib/premium-auth');
 const { createWorkspaceStore } = require('../lib/workspace-store');
-const Ledger = require('../../app-ledger');
+const Workspace = require('../../app-workspace');
 
 async function route(event, context, options = {}) {
   if (event.httpMethod !== 'POST') return methodNotAllowed(['POST']);
@@ -25,15 +25,14 @@ async function route(event, context, options = {}) {
     .filter(item => item.id !== committed.id)
     .flatMap(item => item.transactions || [])
     .concat(deduped);
-  const ledgerResult = Ledger.buildOpenLotsFromTransactions(allTransactions);
-  const positions = Array.isArray(workspace.positions) && workspace.positions.length
-    ? workspace.positions.slice()
-    : [{ id: 'imported-position', name: 'Imported position', lots: [] }];
-  positions[0] = {
-    ...positions[0],
-    lots: ledgerResult.lots || [],
-    importedTransactionCount: allTransactions.length
-  };
+  const depotResult = Workspace.buildDepotFromTransactions
+    ? Workspace.buildDepotFromTransactions(allTransactions, { existingPositions: workspace.positions || [] })
+    : null;
+  const manualPositions = Array.isArray(workspace.positions)
+    ? workspace.positions.filter(position => position.source !== 'import' && !position.importedTransactionCount)
+    : [];
+  const ledgerResult = depotResult || { positions: [], errors: [] };
+  const positions = [...manualPositions, ...(ledgerResult.positions || [])];
   const updated = await store.update(user.userId, workspaceId, {
     ...workspace,
     positions,
@@ -41,11 +40,11 @@ async function route(event, context, options = {}) {
   });
   return json(200, {
     ok: true,
-    data: { workspace: updated, committedTransactions: deduped.length, skippedDuplicates: incoming.length - deduped.length, warnings: ledgerResult.errors || [] },
+    data: { workspace: updated, committedTransactions: deduped.length, skippedDuplicates: incoming.length - deduped.length, warnings: [...(ledgerResult.warnings || []), ...(ledgerResult.errors || [])] },
     workspace: updated,
     committedTransactions: deduped.length,
     skippedDuplicates: incoming.length - deduped.length,
-    warnings: ledgerResult.errors || []
+    warnings: [...(ledgerResult.warnings || []), ...(ledgerResult.errors || [])]
   });
 }
 

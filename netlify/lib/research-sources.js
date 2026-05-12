@@ -1,4 +1,11 @@
+const { callAiProviderJson, providerConfig } = require('./ai-providers');
+
 const DEFAULT_USER_AGENT = 'TaxSwitch research-memo contact@example.com';
+const MAX_AI_TEXT_CHARS = 12000;
+const MAX_AI_BULLETS = 8;
+const MAX_AI_EVIDENCE = 12;
+const MAX_AI_SCENARIOS = 7;
+const MAX_AI_WATCH_RULES = 8;
 
 function clean(value, fallback = '') {
   return String(value ?? fallback).trim();
@@ -12,22 +19,45 @@ function confidence(level) {
   return ['low', 'medium', 'high'].includes(level) ? level : 'medium';
 }
 
+function compactHash(value) {
+  let hash = 2166136261;
+  const text = String(value || '');
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function evidenceId(item) {
+  return clean(item.id) || `ev-${compactHash([item.sourceName, item.sourceDate, item.claim, item.evidence].join('|'))}`;
+}
+
+function truncate(value, max = MAX_AI_TEXT_CHARS) {
+  const text = clean(value);
+  return text.length > max ? `${text.slice(0, max - 1)}...` : text;
+}
+
 function parseNumber(value) {
   if (value === null || value === undefined || value === '') return NaN;
   const number = Number(String(value).replace(/[%,$\s]/g, '').replace(',', '.'));
   return Number.isFinite(number) ? number : NaN;
 }
 
-function evidence({ claim, evidence, sourceUrl, sourceName, sourceDate, confidence: level = 'medium', thesisImpact = 'neutral' }) {
-  return {
+function evidence({ id, claim, evidence: evidenceText, sourceUrl, sourceName, sourceDate, confidence: level = 'medium', thesisImpact = 'neutral', sourceEvidenceIds = [] }) {
+  const item = {
+    id: clean(id),
     claim: clean(claim),
-    evidence: clean(evidence),
+    evidence: clean(evidenceText),
     sourceUrl: clean(sourceUrl),
     sourceName: clean(sourceName),
     sourceDate: clean(sourceDate),
     confidence: confidence(level),
-    thesisImpact: clean(thesisImpact, 'neutral')
+    thesisImpact: clean(thesisImpact, 'neutral'),
+    sourceEvidenceIds: Array.isArray(sourceEvidenceIds) ? sourceEvidenceIds.map(clean).filter(Boolean).slice(0, 8) : []
   };
+  item.id = evidenceId(item);
+  return item;
 }
 
 async function fetchJson(url, options = {}) {
@@ -398,34 +428,352 @@ function buildMemoSections(items, input = {}) {
   };
 }
 
-function normalizeAiEvidence(items = []) {
-  return (Array.isArray(items) ? items : []).map(item => evidence(item)).filter(item => item.claim && item.evidence);
+function safeJsonParse(text) {
+  const raw = clean(text);
+  if (!raw) throw new Error('AI provider returned an empty response.');
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error('AI provider did not return JSON.');
+    return JSON.parse(match[0]);
+  }
+}
+
+function sanitizeTextList(values, limit = MAX_AI_BULLETS, maxChars = 500) {
+  return (Array.isArray(values) ? values : [])
+    .map(value => truncate(value, maxChars))
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+function validEvidenceIdSet(memo = {}) {
+  return new Set((memo.evidence || []).map(item => item.id).filter(Boolean));
+}
+
+function normalizeCitations(ids, allowedIds) {
+  return (Array.isArray(ids) ? ids : [])
+    .map(clean)
+    .filter(id => allowedIds.has(id))
+    .slice(0, 8);
+}
+
+function normalizeAiEvidence(items = [], memo = {}) {
+  const allowedIds = validEvidenceIdSet(memo);
+  return (Array.isArray(items) ? items : [])
+    .slice(0, MAX_AI_EVIDENCE)
+    .map((item, index) => {
+      const sourceEvidenceIds = normalizeCitations(item.sourceEvidenceIds || item.citations || item.evidenceIds, allowedIds);
+      const hasCitation = sourceEvidenceIds.length > 0;
+      return evidence({
+        id: item.id || `ai-ev-${index + 1}`,
+        claim: truncate(item.claim, 280),
+        evidence: truncate(item.evidence || item.text, 700),
+        sourceUrl: clean(item.sourceUrl),
+        sourceName: clean(item.sourceName, 'AI analysis'),
+        sourceDate: clean(item.sourceDate, new Date().toISOString().slice(0, 10)),
+        confidence: hasCitation ? confidence(item.confidence) : 'low',
+        thesisImpact: hasCitation ? clean(item.thesisImpact, 'AI synthesis') : 'uncited AI claim',
+        sourceEvidenceIds
+      });
+    })
+    .filter(item => item.claim && item.evidence);
+}
+
+function normalizeAiSections(sections = {}) {
+  if (!sections || typeof sections !== 'object' || Array.isArray(sections)) return {};
+  return Object.entries(sections).slice(0, 10).reduce((acc, [key, section]) => {
+    if (!section || typeof section !== 'object') return acc;
+    const title = truncate(section.title || key, 80);
+    const bullets = sanitizeTextList(section.bullets, MAX_AI_BULLETS, 450);
+    if (title && bullets.length) acc[clean(key).replace(/[^\w-]/g, '') || `section${Object.keys(acc).length + 1}`] = { title, bullets };
+    return acc;
+  }, {});
+}
+
+function normalizeScenarioCases(rawCases = [], memo = {}) {
+  const allowedIds = validEvidenceIdSet(memo);
+  return (Array.isArray(rawCases) ? rawCases : [])
+    .slice(0, MAX_AI_SCENARIOS)
+    .map((item, index) => {
+      const number = (value, fallback = 0) => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) ? parsed : fallback;
+      };
+      return {
+        id: clean(item.id, `ai-case-${index + 1}`).replace(/[^\w-]/g, '-').slice(0, 40),
+        name: truncate(item.name || `AI case ${index + 1}`, 80),
+        probability: Math.min(Math.max(number(item.probability, 0), 0), 1),
+        oldReturn: Math.min(Math.max(number(item.oldReturn, 0), -0.95), 5),
+        newReturn: Math.min(Math.max(number(item.newReturn, 0), -0.95), 5),
+        oldDividendYield: Math.min(Math.max(number(item.oldDividendYield, 0), 0), 1),
+        newDividendYield: Math.min(Math.max(number(item.newDividendYield, 0), 0), 1),
+        fxReturn: Math.min(Math.max(number(item.fxReturn, 0), -0.95), 5),
+        targetReachProbability: Math.min(Math.max(number(item.targetReachProbability, 0.5), 0), 1),
+        rationale: truncate(item.rationale, 400),
+        sourceEvidenceIds: normalizeCitations(item.sourceEvidenceIds || item.citations || item.evidenceIds, allowedIds)
+      };
+    })
+    .filter(item => item.name);
+}
+
+function normalizeWatchSuggestions(rawSuggestions = [], memo = {}) {
+  const allowedIds = validEvidenceIdSet(memo);
+  const validTypes = new Set(['tax-due-above', 'tax-drag-above', 'rebuy-break-even-reached', 'switch-hurdle-reached', 'price-above', 'price-below', 'target-reached', 'position-weight', 'scenario-margin']);
+  return (Array.isArray(rawSuggestions) ? rawSuggestions : [])
+    .slice(0, MAX_AI_WATCH_RULES)
+    .map((item, index) => {
+      const type = clean(item.type || item.metric || 'scenario-margin');
+      const threshold = Number(item.threshold);
+      return {
+        id: clean(item.id, `ai-watch-${index + 1}`),
+        type: validTypes.has(type) ? type : 'scenario-margin',
+        label: truncate(item.label || type, 100),
+        threshold: Number.isFinite(threshold) ? threshold : NaN,
+        direction: ['above', 'below', 'crosses'].includes(item.direction) ? item.direction : 'above',
+        rationale: truncate(item.rationale, 400),
+        sourceEvidenceIds: normalizeCitations(item.sourceEvidenceIds || item.citations || item.evidenceIds, allowedIds)
+      };
+    })
+    .filter(item => item.label && Number.isFinite(item.threshold));
+}
+
+function normalizeContradictionCheck(raw = {}, memo = {}) {
+  const allowedIds = validEvidenceIdSet(memo);
+  const object = raw && typeof raw === 'object' ? raw : {};
+  return {
+    summary: truncate(object.summary, 700),
+    invalidatingEvidence: sanitizeTextList(object.invalidatingEvidence, 8, 450),
+    keyQuestions: sanitizeTextList(object.keyQuestions, 8, 300),
+    sourceEvidenceIds: normalizeCitations(object.sourceEvidenceIds || object.citations || object.evidenceIds, allowedIds)
+  };
+}
+
+function normalizeAssumptionCritic(raw = {}, memo = {}) {
+  const allowedIds = validEvidenceIdSet(memo);
+  const object = raw && typeof raw === 'object' ? raw : {};
+  return {
+    summary: truncate(object.summary, 700),
+    drivers: (Array.isArray(object.drivers) ? object.drivers : []).slice(0, 10).map((item, index) => ({
+      assumption: truncate(item.assumption || `Driver ${index + 1}`, 100),
+      impact: truncate(item.impact, 350),
+      weakness: truncate(item.weakness, 350),
+      sourceEvidenceIds: normalizeCitations(item.sourceEvidenceIds || item.citations || item.evidenceIds, allowedIds)
+    })).filter(item => item.assumption && (item.impact || item.weakness))
+  };
+}
+
+function normalizeReportNarrative(raw = {}) {
+  const object = raw && typeof raw === 'object' ? raw : {};
+  return {
+    title: truncate(object.title || 'AI report narrative', 100),
+    memo: truncate(object.memo || object.text, 2500)
+  };
+}
+
+function validateAiMemoPayload(payload = {}, memo = {}) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('AI response JSON must be an object.');
+  }
+  const scenarioGenerator = payload.scenarioGenerator || payload.scenarios || {};
+  const watchRuleGenerator = payload.watchRuleGenerator || payload.watchRules || {};
+  const normalized = {
+    provider: truncate(payload.provider, 80),
+    summary: truncate(payload.summary || payload.aiSummary, 1100),
+    sections: normalizeAiSections(payload.sections),
+    evidence: normalizeAiEvidence(payload.evidence, memo),
+    contradictionCheck: normalizeContradictionCheck(payload.contradictionCheck || payload.contradictions, memo),
+    scenarioGenerator: {
+      summary: truncate(scenarioGenerator.summary, 700),
+      cases: normalizeScenarioCases(scenarioGenerator.cases || scenarioGenerator.scenarioCases || [], memo)
+    },
+    assumptionCritic: normalizeAssumptionCritic(payload.assumptionCritic || payload.assumptions, memo),
+    reportNarrative: normalizeReportNarrative(payload.reportNarrative || payload.narrative),
+    watchRuleGenerator: {
+      summary: truncate(watchRuleGenerator.summary, 700),
+      suggestions: normalizeWatchSuggestions(watchRuleGenerator.suggestions || watchRuleGenerator.rules || [], memo)
+    }
+  };
+  if (!normalized.summary && !Object.keys(normalized.sections).length && !normalized.evidence.length
+    && !normalized.contradictionCheck.summary && !normalized.scenarioGenerator.cases.length
+    && !normalized.assumptionCritic.drivers.length && !normalized.reportNarrative.memo
+    && !normalized.watchRuleGenerator.suggestions.length) {
+    throw new Error('AI response did not include any usable memo fields.');
+  }
+  return normalized;
+}
+
+function sanitizeNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Number(number.toFixed(6)) : null;
+}
+
+function sanitizeDecisionContext(decision = {}) {
+  if (!decision || typeof decision !== 'object') return null;
+  const scenario = decision.scenarioAnalysis || {};
+  return {
+    generatedAt: clean(decision.generatedAt),
+    valueCurrency: clean(decision.valueCurrency),
+    summary: {
+      expectedMargin: sanitizeNumber(scenario.expectedMargin),
+      expectedOldValue: sanitizeNumber(scenario.expectedOldValue),
+      expectedNewValue: sanitizeNumber(scenario.expectedNewValue),
+      expectedCashValue: sanitizeNumber(scenario.expectedCashValue),
+      maximumLoss: sanitizeNumber(scenario.maximumLoss),
+      winnerCounts: scenario.winnerCounts || {},
+      monteCarlo: {
+        runs: sanitizeNumber(scenario.monteCarlo?.runs),
+        switchWinRate: sanitizeNumber(scenario.monteCarlo?.switchWinRate),
+        p10Margin: sanitizeNumber(scenario.monteCarlo?.p10Margin),
+        p50Margin: sanitizeNumber(scenario.monteCarlo?.p50Margin),
+        p90Margin: sanitizeNumber(scenario.monteCarlo?.p90Margin)
+      }
+    },
+    assumptionQuality: (decision.assumptionQuality || []).slice(0, 12).map(item => ({
+      assumption: truncate(item.assumption, 100),
+      confidence: confidence(item.confidence),
+      reason: truncate(item.reason, 260)
+    })),
+    riskFlags: (decision.riskFlags || []).slice(0, 12).map(item => ({
+      category: truncate(item.category, 60),
+      label: truncate(item.label, 100),
+      message: truncate(item.message, 260),
+      severity: confidence(item.severity),
+      confidence: confidence(item.confidence)
+    })),
+    taxLossHarvesting: decision.taxLossHarvesting ? {
+      applicable: Boolean(decision.taxLossHarvesting.applicable),
+      realizedLoss: sanitizeNumber(decision.taxLossHarvesting.realizedLoss),
+      estimatedTaxValue: sanitizeNumber(decision.taxLossHarvesting.estimatedTaxValue),
+      lossPotType: truncate(decision.taxLossHarvesting.lossPotType, 100),
+      caveat: truncate(decision.taxLossHarvesting.caveat, 300)
+    } : null,
+    portfolioRisk: decision.portfolioRisk ? {
+      currentWeight: sanitizeNumber(decision.portfolioRisk.currentWeight),
+      switchWeight: sanitizeNumber(decision.portfolioRisk.switchWeight),
+      beforeVolatility: sanitizeNumber(decision.portfolioRisk.beforeVolatility),
+      afterVolatility: sanitizeNumber(decision.portfolioRisk.afterVolatility),
+      portfolioVolatilityChange: sanitizeNumber(decision.portfolioRisk.portfolioVolatilityChange),
+      riskAdjustedMargin: sanitizeNumber(decision.portfolioRisk.riskAdjustedMargin),
+      drawdownVsTolerance: sanitizeNumber(decision.portfolioRisk.drawdownVsTolerance),
+      correlationToPortfolio: sanitizeNumber(decision.portfolioRisk.correlationToPortfolio)
+    } : null
+  };
+}
+
+function buildAiPrompt(input = {}, memo = {}) {
+  const evidenceIndex = (memo.evidence || []).map(item => ({
+    id: item.id,
+    claim: item.claim,
+    evidence: item.evidence,
+    sourceName: item.sourceName,
+    sourceDate: item.sourceDate,
+    confidence: item.confidence,
+    thesisImpact: item.thesisImpact
+  }));
+  const decisionContext = sanitizeDecisionContext(input.decisionContext || input.decisionResult);
+  const system = [
+    'You are TaxSwitch research analysis. Return JSON only.',
+    'You must provide evidence-based scenario analysis only. Do not recommend buying, selling, or holding.',
+    'Every AI evidence item, scenario rationale, assumption driver, contradiction check, and watch rule should cite sourceEvidenceIds from the provided evidenceIndex when possible.',
+    'If you cannot cite sourceEvidenceIds for a claim, keep it cautious and mark low confidence.',
+    'Use decimal returns and probabilities, not percentages.'
+  ].join(' ');
+  const user = JSON.stringify({
+    task: 'taxswitch_ai_research_suite',
+    requestedOutputs: ['summary', 'sections', 'evidence', 'contradictionCheck', 'scenarioGenerator', 'assumptionCritic', 'reportNarrative', 'watchRuleGenerator'],
+    schema: {
+      summary: 'string',
+      sections: { key: { title: 'string', bullets: ['string'] } },
+      evidence: [{ claim: 'string', evidence: 'string', confidence: 'low|medium|high', thesisImpact: 'string', sourceEvidenceIds: ['ev-id'] }],
+      contradictionCheck: { summary: 'string', invalidatingEvidence: ['string'], keyQuestions: ['string'], sourceEvidenceIds: ['ev-id'] },
+      scenarioGenerator: { summary: 'string', cases: [{ id: 'bull|base|bear', name: 'string', probability: 0.33, oldReturn: 0.05, newReturn: 0.08, oldDividendYield: 0, newDividendYield: 0, fxReturn: 0, targetReachProbability: 0.5, rationale: 'string', sourceEvidenceIds: ['ev-id'] }] },
+      assumptionCritic: { summary: 'string', drivers: [{ assumption: 'string', impact: 'string', weakness: 'string', sourceEvidenceIds: ['ev-id'] }] },
+      reportNarrative: { title: 'string', memo: 'string' },
+      watchRuleGenerator: { summary: 'string', suggestions: [{ type: 'scenario-margin', label: 'string', threshold: 0, direction: 'above|below|crosses', rationale: 'string', sourceEvidenceIds: ['ev-id'] }] }
+    },
+    input: {
+      symbol: upper(input.symbol || input.ticker),
+      targetSymbol: upper(input.targetSymbol),
+      thesis: clean(input.thesis || input.userThesis),
+      positionCurrency: upper(input.positionCurrency || input.currency),
+      taxCurrency: upper(input.taxCurrency || input.currency)
+    },
+    evidenceIndex,
+    decisionContext
+  });
+  return { system, user };
 }
 
 async function enhanceMemoWithAi(memo, input = {}, options = {}) {
   const env = options.env || {};
+  const requestedProvider = clean(input.aiProvider || options.aiProvider);
+  const requestedModel = clean(input.aiModel || options.aiModel);
   const endpoint = clean(options.aiResearchUrl || env.AI_RESEARCH_URL);
-  if (!endpoint) return memo;
-  const apiKey = clean(options.aiResearchApiKey || env.AI_RESEARCH_API_KEY);
-  const payload = await postJson(endpoint, {
-    task: 'taxswitch_research_memo',
-    instruction: 'Return evidence-based scenario analysis only. Do not recommend buying, selling, or holding.',
-    input,
-    memo
-  }, {
-    ...options,
-    headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
-  });
-  const aiMemo = payload.memo || payload.data?.memo || payload;
-  const aiEvidence = normalizeAiEvidence(aiMemo.evidence || []);
-  return {
-    ...memo,
-    status: memo.status === 'complete' ? 'complete+ai' : `${memo.status || 'partial'}+ai`,
-    aiSummary: clean(aiMemo.summary || aiMemo.aiSummary),
-    sections: aiMemo.sections && typeof aiMemo.sections === 'object' ? { ...memo.sections, ...aiMemo.sections } : memo.sections,
-    evidence: memo.evidence.concat(aiEvidence),
-    aiProvider: clean(payload.provider || aiMemo.provider || 'configured AI research endpoint')
-  };
+  if (!requestedProvider && !endpoint) return memo;
+  try {
+    let payload;
+    let providerLabel = '';
+    let modelLabel = requestedModel;
+    if (requestedProvider) {
+      const config = providerConfig(requestedProvider);
+      if (!config) throw new Error('Unknown AI provider.');
+      const prompt = buildAiPrompt(input, memo);
+      const response = await callAiProviderJson({
+        provider: requestedProvider,
+        model: requestedModel,
+        system: prompt.system,
+        user: prompt.user,
+        maxOutputTokens: options.maxOutputTokens
+      }, {
+        env,
+        fetchImpl: options.fetchImpl,
+        timeoutMs: Number(options.aiTimeoutMs || env.AI_RESEARCH_TIMEOUT_MS) || 20000
+      });
+      payload = safeJsonParse(response.text);
+      providerLabel = config.label;
+      modelLabel = response.model || requestedModel;
+    } else {
+      const apiKey = clean(options.aiResearchApiKey || env.AI_RESEARCH_API_KEY);
+      payload = await postJson(endpoint, {
+        task: 'taxswitch_research_memo',
+        instruction: 'Return evidence-based scenario analysis only. Do not recommend buying, selling, or holding.',
+        input,
+        memo,
+        decisionContext: sanitizeDecisionContext(input.decisionContext || input.decisionResult)
+      }, {
+        ...options,
+        headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {}
+      });
+      providerLabel = 'configured AI research endpoint';
+    }
+    const aiMemo = validateAiMemoPayload(payload.memo || payload.data?.memo || payload, memo);
+    const aiEvidence = aiMemo.evidence || [];
+    return {
+      ...memo,
+      status: memo.status === 'complete' ? 'complete+ai' : `${memo.status || 'partial'}+ai`,
+      aiSummary: aiMemo.summary,
+      ai: {
+        provider: aiMemo.provider || providerLabel,
+        model: modelLabel,
+        contradictionCheck: aiMemo.contradictionCheck,
+        scenarioGenerator: aiMemo.scenarioGenerator,
+        assumptionCritic: aiMemo.assumptionCritic,
+        reportNarrative: aiMemo.reportNarrative,
+        watchRuleGenerator: aiMemo.watchRuleGenerator
+      },
+      sections: { ...memo.sections, ...aiMemo.sections },
+      evidence: memo.evidence.concat(aiEvidence),
+      aiProvider: clean(aiMemo.provider || providerLabel),
+      aiModel: clean(modelLabel)
+    };
+  } catch (error) {
+    return {
+      ...memo,
+      aiErrors: (memo.aiErrors || []).concat(error.message || 'AI enhancement failed.'),
+      sourceErrors: (memo.sourceErrors || []).concat(`AI enhancement skipped: ${error.message || 'request failed'}`)
+    };
+  }
 }
 
 async function buildResearchMemo(input = {}, options = {}) {
@@ -535,6 +883,8 @@ module.exports = {
   buildBusinessEvidence,
   buildMarketDataEvidence,
   buildMemoSections,
+  validateAiMemoPayload,
+  sanitizeDecisionContext,
   enhanceMemoWithAi,
   buildResearchMemo,
   localMemoFallback

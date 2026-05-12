@@ -58,4 +58,19 @@ const lots = [
   assert.ok(result.trackingErrorAfter < result.trackingErrorBefore);
 }
 
+{
+  const depot = Workspace.buildDepotFromTransactions([
+    { id: 'sap-buy-1', broker: 'trade-republic', accountId: 'main', type: 'BUY', tradeDate: '2020-01-01', symbol: 'SAP', isin: 'DE0007164600', quantity: 10, price: 80, currency: 'EUR' },
+    { id: 'sap-sell-1', broker: 'trade-republic', accountId: 'main', type: 'SELL', tradeDate: '2021-01-01', symbol: 'SAP', isin: 'DE0007164600', quantity: 4, price: 110, currency: 'EUR' },
+    { id: 'msft-buy-1', broker: 'interactive-brokers', accountId: 'usd', type: 'BUY', tradeDate: '2020-02-01', symbol: 'MSFT', isin: 'US5949181045', quantity: 2, price: 200, currency: 'USD' },
+    { id: 'msft-div-1', broker: 'interactive-brokers', accountId: 'usd', type: 'DIVIDEND', tradeDate: '2020-03-01', symbol: 'MSFT', isin: 'US5949181045', grossAmount: 5, currency: 'USD' }
+  ]);
+
+  assert.equal(depot.positions.length, 2);
+  assert.equal(depot.accounts.length, 2);
+  assert.equal(depot.positions.find(position => position.symbol === 'SAP').shares, 6);
+  assert.equal(depot.positions.find(position => position.symbol === 'MSFT').shares, 2);
+  assert.equal(depot.cashEvents.length, 1);
+}
+
 console.log('Optimizer tests passed');

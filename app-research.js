@@ -12,16 +12,30 @@
     return clean(value).toUpperCase();
   }
 
+  function compactHash(value) {
+    let hash = 2166136261;
+    const text = String(value || '');
+    for (let i = 0; i < text.length; i += 1) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return (hash >>> 0).toString(36);
+  }
+
   function evidence(item) {
-    return {
+    const normalized = {
+      id: clean(item.id),
       claim: clean(item.claim),
       evidence: clean(item.evidence),
       sourceUrl: clean(item.sourceUrl),
       sourceName: clean(item.sourceName, 'Manual input'),
       sourceDate: clean(item.sourceDate),
       confidence: ['low', 'medium', 'high'].includes(item.confidence) ? item.confidence : 'medium',
-      thesisImpact: clean(item.thesisImpact, 'neutral')
+      thesisImpact: clean(item.thesisImpact, 'neutral'),
+      sourceEvidenceIds: Array.isArray(item.sourceEvidenceIds) ? item.sourceEvidenceIds.map(clean).filter(Boolean).slice(0, 8) : []
     };
+    normalized.id = normalized.id || `ev-${compactHash([normalized.sourceName, normalized.sourceDate, normalized.claim, normalized.evidence].join('|'))}`;
+    return normalized;
   }
 
   function buildLocalMemo(input = {}) {

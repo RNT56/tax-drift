@@ -14,8 +14,7 @@
   <link rel="manifest" href="site.webmanifest">
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=18">
-  <script src="https://identity.netlify.com/v1/netlify-identity-widget.js" defer></script>
+  <link rel="stylesheet" href="styles.css?v=20">
 </head>
 <body>
   <div class="app-shell">
@@ -74,9 +73,96 @@
       </div>
     </div>
 
+    <div id="updatePrompt" class="install-prompt install-prompt--update" role="status" hidden>
+      <span id="updatePromptText">A new TaxSwitch version is ready.</span>
+      <div class="install-prompt__actions">
+        <button id="reloadUpdateBtn" type="button" class="primary-button primary-button--small">Reload</button>
+        <button id="dismissUpdatePrompt" type="button" class="icon-button icon-button--small" aria-label="Dismiss update prompt">
+          <span class="icon-x" aria-hidden="true"></span>
+        </button>
+      </div>
+    </div>
+
+    <nav class="app-nav" aria-label="Primary app areas">
+      <button id="calculatorNavBtn" type="button" class="app-nav__button is-active" data-app-route="calculator">Calculator</button>
+      <button id="depotNavBtn" type="button" class="app-nav__button" data-app-route="depot">Depot</button>
+    </nav>
+
     <main>
+      <section id="depotPage" class="depot-page" aria-labelledby="depotTitle" hidden>
+        <div class="section-heading">
+          <span class="section-number">D</span>
+          <div>
+            <h2 id="depotTitle">Depot overview</h2>
+            <p>Review imported accounts, positions, FIFO lots and portfolio drift before using them in tax decisions.</p>
+          </div>
+        </div>
+
+        <div class="depot-toolbar">
+          <div id="depotSummary" class="depot-summary" aria-live="polite"></div>
+          <div class="workspace-actions workspace-actions--flush">
+            <button id="depotSaveWorkspaceBtn" type="button" class="ghost-button ghost-button--tight">Save workspace</button>
+            <button id="depotSyncWorkspaceBtn" type="button" class="ghost-button ghost-button--tight">Sync backend</button>
+          </div>
+        </div>
+
+        <div class="depot-grid">
+          <section class="depot-section" aria-labelledby="depotImportTitle">
+            <div class="depot-section__header">
+              <h3 id="depotImportTitle">Imports</h3>
+              <span id="depotImportStatus">No import loaded</span>
+            </div>
+            <label class="file-drop file-drop--compact">
+              <span>Import broker file</span>
+              <input id="depotImportFile" type="file" accept=".csv,.pdf,text/csv,application/pdf">
+              <strong class="file-drop__button">Choose CSV or PDF</strong>
+              <small id="depotImportFileName">No file selected</small>
+            </label>
+            <div id="depotImportPreview" class="import-preview" hidden></div>
+            <div class="workspace-actions">
+              <button id="depotCommitImportBtn" type="button" class="ghost-button ghost-button--tight" disabled>Commit to Depot</button>
+              <button id="depotClearImportBtn" type="button" class="ghost-button ghost-button--tight">Clear import</button>
+            </div>
+          </section>
+
+          <section class="depot-section" aria-labelledby="depotSourcesTitle">
+            <div class="depot-section__header">
+              <h3 id="depotSourcesTitle">Sources</h3>
+              <span>Adapters</span>
+            </div>
+            <div id="depotSourceList" class="depot-source-list"></div>
+          </section>
+        </div>
+
+        <section class="depot-section depot-section--wide" aria-labelledby="depotPositionsTitle">
+          <div class="depot-section__header">
+            <h3 id="depotPositionsTitle">Positions</h3>
+            <span id="depotPositionCount">0 positions</span>
+          </div>
+          <div id="depotPositionsTable" class="depot-table" aria-live="polite"></div>
+        </section>
+
+        <div class="depot-grid depot-grid--lower">
+          <section class="depot-section" aria-labelledby="depotAccountsTitle">
+            <div class="depot-section__header">
+              <h3 id="depotAccountsTitle">Accounts</h3>
+              <span id="depotAccountCount">0 accounts</span>
+            </div>
+            <div id="depotAccountList" class="depot-list"></div>
+          </section>
+
+          <section class="depot-section" aria-labelledby="depotCashTitle">
+            <div class="depot-section__header">
+              <h3 id="depotCashTitle">Cash events</h3>
+              <span id="depotCashEventCount">0 events</span>
+            </div>
+            <div id="depotCashEventList" class="depot-list"></div>
+          </section>
+        </div>
+      </section>
+
       <!-- ── 01 Instrument ─────────────────────────────────────── -->
-      <section class="panel panel--instrument" aria-labelledby="instrumentTitle">
+      <section class="panel panel--instrument" aria-labelledby="instrumentTitle" data-calculator-page>
         <div class="section-heading">
           <span class="section-number">01</span>
           <div>
@@ -152,7 +238,7 @@
         </article>
       </section>
 
-      <div class="main-grid">
+      <div class="main-grid" data-calculator-page>
       <!-- ── 02 Position ───────────────────────────────────────── -->
       <section class="panel panel--inputs" aria-labelledby="inputsTitle">
         <div class="section-heading">
@@ -738,6 +824,7 @@
             <button id="loadWorkspaceBtn" type="button" class="ghost-button ghost-button--tight">Load workspace</button>
             <button id="syncWorkspaceBtn" type="button" class="ghost-button ghost-button--tight">Sync backend</button>
           </div>
+          <div id="workspaceSyncStatus" class="workspace-sync-status" role="status" aria-live="polite">Local only. Backend sync needs sign-in or an auth token.</div>
 
           <div class="workspace-tabs" role="tablist" aria-label="Workspace tabs">
             <button id="positionsWorkspaceTab" type="button" class="workspace-tab is-active" data-workspace-tab="positions" role="tab" aria-selected="true" aria-controls="positionsWorkspacePanel">Positions</button>
@@ -827,6 +914,8 @@
             <label class="file-drop">
               <span>Broker import</span>
               <input id="brokerImportFile" type="file" accept=".csv,.pdf,text/csv,application/pdf">
+              <strong class="file-drop__button">Choose CSV or PDF</strong>
+              <small id="brokerImportFileName">No file selected</small>
             </label>
             <div id="importPreview" class="import-preview" hidden></div>
             <div class="workspace-actions">
@@ -1186,9 +1275,24 @@
             <span>Thesis to test</span>
             <input id="researchThesis" type="text" autocomplete="off" placeholder="e.g. Target stock can compound faster because cloud margins improve" aria-label="Research thesis">
           </label>
+          <div class="field-grid field-grid--two">
+            <label class="field">
+              <span>AI provider</span>
+              <select id="aiProviderSelect" aria-label="AI provider">
+                <option value="">Evidence only</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>AI model</span>
+              <select id="aiModelSelect" aria-label="AI model">
+                <option value="">No AI model</option>
+              </select>
+            </label>
+          </div>
           <div class="workspace-actions workspace-actions--flush">
             <button id="generateResearchMemoBtn" type="button" class="primary-button primary-button--small">Generate memo</button>
           </div>
+          <div id="aiProviderStatus" class="workspace-status">AI provider status not loaded.</div>
           <div id="researchMemoStatus" class="workspace-status">No memo yet.</div>
           <div id="researchMemoOutput" class="research-memo-output"></div>
         </div>
@@ -1209,7 +1313,7 @@
         </div>
       </section>
 
-      <section class="info-card" aria-label="Tax assumption and disclaimer">
+      <section class="info-card" aria-label="Tax assumption and disclaimer" data-calculator-page>
         <details>
           <summary>Tax assumption & limitations</summary>
           <p>The default German preset is 26.375%, based on 25% capital gains tax plus solidarity surcharge. German detailed mode can model church tax, saver allowance, stock and other loss pots, ETF partial exemptions, prior taxed Vorabpauschale, foreign tax credits, FIFO lots and manual/live FX assumptions. It remains a planning tool; broker and tax-office treatment can differ.</p>
@@ -1239,15 +1343,14 @@
     <p class="noscript">This calculator needs JavaScript enabled to run the calculations.</p>
   </noscript>
 
-  <script>if('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');</script>
-  <script src="symbol-catalog.js" defer></script>
-  <script src="tax-germany.js" defer></script>
-  <script src="app-ledger.js" defer></script>
-  <script src="app-workspace.js" defer></script>
-  <script src="app-core.js" defer></script>
-  <script src="app-decision.js" defer></script>
-  <script src="app-research.js" defer></script>
-  <script src="app-ui.js" defer></script>
-  <script src="app.js?v=18" defer></script>
+  <script src="symbol-catalog.js?v=20" defer></script>
+  <script src="tax-germany.js?v=20" defer></script>
+  <script src="app-ledger.js?v=20" defer></script>
+  <script src="app-workspace.js?v=20" defer></script>
+  <script src="app-core.js?v=20" defer></script>
+  <script src="app-decision.js?v=20" defer></script>
+  <script src="app-research.js?v=20" defer></script>
+  <script src="app-ui.js?v=20" defer></script>
+  <script src="app.js?v=20" defer></script>
 </body>
 </html>

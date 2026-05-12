@@ -85,6 +85,10 @@ function rowsToObjects(rows) {
   });
 }
 
+function headerLabels(rows) {
+  return (rows[0] || []).map(value => String(value || '').trim()).filter(Boolean);
+}
+
 function pick(row, names) {
   for (const name of names) {
     const key = normalizeHeader(name);
@@ -96,8 +100,35 @@ function pick(row, names) {
 function normalizeGenericCsv(text, options = {}) {
   const rows = parseDelimitedText(text, options);
   const objects = rowsToObjects(rows);
+  const labels = headerLabels(rows);
+  const normalizedHeaders = labels.map(normalizeHeader);
   const detection = options.detection || detectBroker({ text, fileName: options.fileName, contentType: 'text/csv' });
   const mapping = options.mapping || {};
+  const resolvedMapping = {};
+  const findColumn = (names) => {
+    for (const name of names) {
+      const key = normalizeHeader(name);
+      const index = normalizedHeaders.indexOf(key);
+      if (index >= 0 && labels[index]) return labels[index];
+    }
+    return '';
+  };
+  Object.entries({
+    type: [mapping.type, 'type', 'transaction type', 'aktion', 'typ', 'side'],
+    quantity: [mapping.quantity, 'quantity', 'shares', 'stück', 'stueck', 'anzahl'],
+    price: [mapping.price, 'price', 'kurs'],
+    grossAmount: [mapping.grossAmount, 'amount', 'gross amount', 'betrag', 'total'],
+    fees: [mapping.fees, 'fees', 'fee', 'kosten', 'gebühr'],
+    taxes: [mapping.taxes, 'tax', 'taxes', 'steuer'],
+    currency: [mapping.currency, 'currency', 'währung', 'waehrung'],
+    symbol: [mapping.symbol, 'symbol', 'ticker', 'wertpapier'],
+    isin: [mapping.isin, 'isin'],
+    name: [mapping.name, 'name', 'instrument', 'description'],
+    tradeDate: [mapping.tradeDate, 'trade date', 'date', 'datum'],
+    settlementDate: [mapping.settlementDate, 'settlement date', 'valuta']
+  }).forEach(([field, names]) => {
+    resolvedMapping[field] = findColumn(names);
+  });
   const transactions = objects.map((row) => {
     const typeRaw = pick(row, [mapping.type, 'type', 'transaction type', 'aktion', 'typ', 'side']);
     const type = /sell|verkauf/i.test(typeRaw) ? 'SELL' : /buy|kauf/i.test(typeRaw) ? 'BUY' : String(typeRaw || 'UNKNOWN').toUpperCase();
@@ -114,7 +145,7 @@ function normalizeGenericCsv(text, options = {}) {
       type,
       quantity: parseNumber(pick(row, [mapping.quantity, 'quantity', 'shares', 'stück', 'stueck', 'anzahl'])),
       price: parseNumber(pick(row, [mapping.price, 'price', 'kurs'])),
-      grossAmount: parseNumber(pick(row, [mapping.grossAmount, 'amount', 'gross amount', 'betrag'])),
+      grossAmount: parseNumber(pick(row, [mapping.grossAmount, 'amount', 'gross amount', 'betrag', 'total'])),
       fees: parseNumber(pick(row, [mapping.fees, 'fees', 'fee', 'kosten', 'gebühr'])),
       taxes: parseNumber(pick(row, [mapping.taxes, 'tax', 'taxes', 'steuer'])),
       currency: String(pick(row, [mapping.currency, 'currency', 'währung', 'waehrung']) || options.currency || 'EUR').toUpperCase().slice(0, 3),
@@ -125,14 +156,24 @@ function normalizeGenericCsv(text, options = {}) {
     tx.id = rowHash(tx);
     if (!tx.symbol && !tx.isin) tx.warnings.push('Missing symbol/ISIN.');
     if (!Number.isFinite(tx.quantity)) tx.errors.push('Missing quantity.');
+    if (!Number.isFinite(tx.price) && !Number.isFinite(tx.grossAmount) && ['BUY', 'SELL'].includes(tx.type)) tx.warnings.push('Missing price or gross amount.');
     return tx;
   });
+  const requiredFieldsMissing = [];
+  if (!resolvedMapping.type) requiredFieldsMissing.push('type');
+  if (!resolvedMapping.quantity) requiredFieldsMissing.push('quantity');
+  if (!resolvedMapping.price && !resolvedMapping.grossAmount) requiredFieldsMissing.push('price or amount');
+  if (!resolvedMapping.symbol && !resolvedMapping.isin) requiredFieldsMissing.push('symbol or ISIN');
+  const hasTransactionErrors = transactions.some(tx => (tx.errors || []).length);
   return {
     detectedBroker: options.broker || detection.broker || 'generic-csv',
     adapter: detection.adapter || 'generic-csv',
     confidence: options.broker ? 0.75 : detection.confidence,
     reason: detection.reason,
-    mappingRequired: detection.confidence < 0.5,
+    headers: labels,
+    fieldMapping: resolvedMapping,
+    requiredFieldsMissing,
+    mappingRequired: requiredFieldsMissing.length > 0 || hasTransactionErrors || objects.length === 0,
     rowCount: objects.length,
     transactions,
     symbols: [...new Set(transactions.map(tx => tx.isin || tx.symbol).filter(Boolean))],

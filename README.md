@@ -20,7 +20,7 @@ The app starts with blank position fields and can be used for any stock, ETF, in
 - Probability-weighted bull/base/bear/recession/rate-cut/no-growth/multiple-compression cases plus seeded Monte Carlo sensitivity
 - Workspace schema v2 for decision cases, risk profile, research memos, watch rules, exposure and assumptions
 - Local fallback symbol catalog if no API key is configured
-- No external browser dependencies, fonts or CDN calls
+- No external fonts or market-data calls from the browser; Netlify Identity is lazy-loaded only when sign-in is used
 - Netlify-ready `netlify.toml`
 - Security headers and SPA fallback redirect
 
@@ -46,13 +46,23 @@ The app works without API keys in anonymous/manual mode. Netlify Functions and p
 | `EODHD_API_KEY` | Optional | Live symbol search, latest prices, FX rates | Additional fallback provider. |
 | `ALPHA_VANTAGE_API_KEY` | Optional | Live symbol search fallback | Useful as another fallback; coverage and rate limits vary. |
 | `FRED_API_KEY` | Optional | Macro context in research memos | Research memo still works without it, but FRED evidence is skipped. |
+| `OPENAI_API_KEY` | Optional | Hosted AI research provider | Enables OpenAI provider/model selection in the AI Research tab. |
+| `ANTHROPIC_API_KEY` | Optional | Hosted AI research provider | Enables Anthropic provider/model selection in the AI Research tab. |
+| `GEMINI_API_KEY` | Optional | Hosted AI research provider | Enables Google Gemini provider/model selection in the AI Research tab. |
+| `XAI_API_KEY` | Optional | Hosted AI research provider | Enables xAI Grok provider/model selection in the AI Research tab. |
+| `PERPLEXITY_API_KEY` | Optional | Hosted AI research provider | Enables Perplexity provider/model selection in the AI Research tab. |
 | `AI_RESEARCH_URL` | Optional | AI-compatible research memo enhancement | Receives the evidence memo and must return JSON. Disabled unless configured. |
 | `AI_RESEARCH_API_KEY` | Optional | Authorization for `AI_RESEARCH_URL` | Sent as a Bearer token only to the configured endpoint. |
 | `AI_RESEARCH_RATE_LIMIT` | Optional | Research memo request limit | Defaults to 5/hour when AI enhancement is configured, otherwise 20/hour. |
 | `AI_RESEARCH_RATE_WINDOW_SECONDS` | Optional | Research memo rate-limit window | Defaults to 3600 seconds. |
+| `AI_RESEARCH_TIMEOUT_MS` | Optional | AI provider timeout | Defaults to 20 seconds. Timeout falls back to the evidence memo. |
+| `AI_RESEARCH_IP_LIMIT` | Optional | AI request quota per IP | Defaults to 5/hour. Uses persistent Netlify Blobs when `DATA_ENCRYPTION_KEY` is configured; memory fallback is local/dev only. |
+| `AI_RESEARCH_IP_WINDOW_SECONDS` | Optional | AI request quota window | Defaults to 3600 seconds. |
+| `AI_ALLOWED_MODELS` | Optional | Override hosted AI allowlist | Comma-separated `provider:model` pairs. Defaults to `openai:gpt-5.5, anthropic:claude-4.6-sonnet, gemini:gemini-3.1-pro, xai:grok-4.2`. |
 | `DATA_ENCRYPTION_KEY` | Required only for persistent premium backend storage | Encrypting workspace/import/report/alert Blobs | Not needed for local anonymous use. Required before relying on Netlify Blobs for user financial data. Use a long random value. |
 | `RESEND_API_KEY` | Optional | Email alerts | Not needed unless `email` alert delivery is enabled. In-app/local alerts work without it. |
 | `PREMIUM_API_TOKEN_HASHES` | Optional | Non-Identity API access/testing | Format is `sha256(token):userId`, comma-separated for multiple tokens. Netlify Identity is preferred for real users. |
+| `ALERT_SCHEDULER_SECRET` | Recommended | Manual alert scheduler runs | Scheduled Netlify runs work without a browser user. Direct HTTP calls must include this value as `x-alert-scheduler-secret` or a Bearer token when configured. |
 
 Developer/test-only variables:
 
@@ -262,8 +272,11 @@ Research memos use deterministic source collection and schema validation. They c
 - configured FMP profile, ratios and licensed-provider news evidence when `FMP_API_KEY` is available
 - optional FRED macro evidence when `FRED_API_KEY` is configured
 - ECB SDMX FX context
-- optional AI memo enhancement through `AI_RESEARCH_URL`
+- optional hosted AI memo enhancement through OpenAI, Anthropic, Google Gemini, xAI Grok or Perplexity
+- optional custom AI memo enhancement through `AI_RESEARCH_URL`
 - local fallback memo content when the backend or source collection is unavailable
+
+AI-enhanced memos keep the deterministic evidence memo as the base. Provider responses are size-limited, timeout-limited and schema-validated; every evidence item receives an ID, and uncited AI claims are downgraded to low confidence. The frontend sends a sanitized Decision Lab context with scenario margin, Monte Carlo stats, assumption quality, risk flags, tax-loss state and portfolio risk so AI output can support contradiction checks, scenario suggestions, assumption critique, report narrative and watch-rule suggestions without becoming a buy/sell/hold recommendation.
 
 Analyst revisions, insider transactions, transcripts, detailed event calendars and full valuation-provider synthesis are not bundled. The app leaves those as optional provider integrations rather than scraping.
 
@@ -314,6 +327,7 @@ Enable Netlify Identity in the site dashboard before testing signed-in workspace
 - generic CSV, Trade Republic, Scalable Capital and IBKR import detection
 - backend text-PDF parsing for Trade Republic and Scalable Capital confirmations
 - FIFO lot accounting from imported transactions
+- dedicated Depot overview with broker/account grouping and multi-instrument import materialization
 - German detailed tax breakdown
 - portfolio positions, targets, scenario comparison and deterministic optimizer
 - CSV/JSON/HTML audit reports

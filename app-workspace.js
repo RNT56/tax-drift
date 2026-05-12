@@ -322,6 +322,141 @@
     };
   }
 
+  function normalizeImportTransaction(tx = {}) {
+    const type = String(tx.type || tx.side || '').trim().toUpperCase();
+    const isin = String(tx.isin || '').trim().toUpperCase();
+    const symbol = String(tx.symbol || '').trim().toUpperCase();
+    const broker = String(tx.broker || tx.source || 'generic').trim() || 'generic';
+    const accountId = String(tx.accountId || tx.account || '').trim();
+    const currency = String(tx.currency || 'EUR').trim().toUpperCase().slice(0, 3) || 'EUR';
+    return {
+      ...tx,
+      type,
+      broker,
+      accountId,
+      symbol,
+      isin,
+      name: String(tx.name || tx.instrument || tx.description || symbol || isin || 'Imported position').trim(),
+      currency,
+      quantity: finiteNumber(tx.quantity ?? tx.shares, NaN),
+      price: finiteNumber(tx.price, NaN),
+      grossAmount: finiteNumber(tx.grossAmount, NaN),
+      fees: finiteNumber(tx.fees, 0),
+      taxes: finiteNumber(tx.taxes, 0)
+    };
+  }
+
+  function importInstrumentKey(tx = {}) {
+    const normalized = normalizeImportTransaction(tx);
+    return normalized.isin || normalized.symbol || normalized.name.toUpperCase();
+  }
+
+  function groupImportTransactions(transactions = []) {
+    const groups = new Map();
+    (transactions || []).map(normalizeImportTransaction).forEach((tx) => {
+      const instrumentKey = importInstrumentKey(tx);
+      const key = [tx.broker, tx.accountId || 'default', instrumentKey].join('|');
+      if (!groups.has(key)) {
+        groups.set(key, {
+          id: `depot-${simpleHash(key)}`,
+          key,
+          broker: tx.broker,
+          accountId: tx.accountId,
+          instrumentKey,
+          symbol: tx.symbol,
+          isin: tx.isin,
+          name: tx.name,
+          currency: tx.currency,
+          transactions: []
+        });
+      }
+      const group = groups.get(key);
+      group.transactions.push(tx);
+      if (!group.symbol && tx.symbol) group.symbol = tx.symbol;
+      if (!group.isin && tx.isin) group.isin = tx.isin;
+      if ((!group.name || group.name === 'Imported position') && tx.name) group.name = tx.name;
+      if (!group.currency && tx.currency) group.currency = tx.currency;
+    });
+    return [...groups.values()].sort((a, b) => String(a.name || a.instrumentKey).localeCompare(String(b.name || b.instrumentKey)));
+  }
+
+  function buildDepotFromTransactions(transactions = [], options = {}) {
+    const existingPositions = Array.isArray(options.existingPositions) ? options.existingPositions : [];
+    const existingById = new Map(existingPositions.map(position => [String(position.id), position]));
+    const existingByInstrument = new Map();
+    existingPositions.forEach((position) => {
+      const key = String(position.isin || position.symbol || '').toUpperCase();
+      if (key && !existingByInstrument.has(key)) existingByInstrument.set(key, position);
+    });
+
+    const groups = groupImportTransactions(transactions);
+    const warnings = [];
+    const errors = [];
+    const positions = groups.map((group) => {
+      const ledger = AppLedger.buildOpenLotsFromTransactions(group.transactions);
+      if (ledger.errors?.length) errors.push(...ledger.errors.map(message => `${group.name || group.instrumentKey}: ${message}`));
+      const lots = ledger.lots || [];
+      const shares = lots.reduce((sum, lot) => sum + finiteNumber(lot.shares, 0), 0);
+      const costBasis = lots.reduce((sum, lot) => sum + finiteNumber(lot.shares, 0) * finiteNumber(lot.price, 0) + finiteNumber(lot.fees, 0), 0);
+      const buyPrice = shares > 0 ? costBasis / shares : 0;
+      const instrumentKey = group.isin || group.symbol;
+      const existing = existingById.get(group.id) || (instrumentKey ? existingByInstrument.get(String(instrumentKey).toUpperCase()) : null) || {};
+      const lastPricedTx = group.transactions.slice().reverse().find(tx => Number.isFinite(tx.price) && tx.price > 0);
+      const currentPrice = Math.max(finiteNumber(existing.currentPrice, finiteNumber(lastPricedTx?.price, buyPrice)), 0);
+      const currentFxRate = Math.max(finiteNumber(existing.currentFxRate ?? existing.fxRate, 1), 0) || 1;
+      return {
+        id: group.id,
+        name: existing.name || group.name || group.symbol || group.isin || 'Imported position',
+        symbol: existing.symbol || group.symbol || '',
+        isin: existing.isin || group.isin || '',
+        broker: group.broker,
+        accountId: group.accountId,
+        source: 'import',
+        sourceKey: group.key,
+        currency: existing.currency || group.currency || 'EUR',
+        shares,
+        buyPrice,
+        currentPrice,
+        currentFxRate,
+        value: shares * currentPrice * currentFxRate,
+        costBasis,
+        targetWeight: Math.max(finiteNumber(existing.targetWeight, 0), 0),
+        expectedReturn: finiteNumber(existing.expectedReturn, 0),
+        minTradeValue: Math.max(finiteNumber(existing.minTradeValue, 0), 0),
+        lots,
+        importedTransactionCount: group.transactions.length,
+        lastTradeDate: group.transactions.map(tx => tx.tradeDate || tx.date || '').filter(Boolean).sort().slice(-1)[0] || '',
+        importedAt: options.importedAt || new Date().toISOString()
+      };
+    }).filter(position => options.includeClosedPositions || position.shares > 0 || position.importedTransactionCount > 0);
+
+    const accounts = groups.reduce((list, group) => {
+      const id = [group.broker, group.accountId || 'default'].join('|');
+      if (!list.some(account => account.id === id)) {
+        list.push({
+          id,
+          broker: group.broker,
+          accountId: group.accountId,
+          positionCount: groups.filter(item => item.broker === group.broker && item.accountId === group.accountId).length
+        });
+      }
+      return list;
+    }, []);
+
+    const cashEvents = (transactions || []).map(normalizeImportTransaction).filter(tx => ['DIVIDEND', 'FEE', 'TAX', 'INTEREST'].includes(tx.type));
+    if (!positions.length && transactions.length) warnings.push('No open imported positions were produced from the transaction set.');
+
+    return {
+      positions,
+      groups,
+      accounts,
+      cashEvents,
+      transactionCount: transactions.length,
+      warnings,
+      errors
+    };
+  }
+
   function buildAuditReport(input = {}, output = {}, metadata = {}) {
     return {
       id: metadata.id || `report-${Date.now().toString(36)}`,
@@ -443,7 +578,8 @@
   function parseBrokerCsv(text, options = {}) {
     const rows = parseDelimitedText(text, options.delimiter);
     const detection = detectBrokerText(text, options.fileName || '');
-    const headers = (rows[0] || []).map(normalizeHeader);
+    const headerLabels = (rows[0] || []).map(value => String(value || '').trim());
+    const headers = headerLabels.map(normalizeHeader);
     const objects = rows.slice(1).filter(row => row.some(Boolean)).map((row, index) => {
       const obj = { sourceRow: index + 2 };
       headers.forEach((header, i) => { obj[header] = row[i] || ''; });
@@ -456,7 +592,32 @@
       }
       return '';
     };
+    const resolvedMapping = {};
+    const findColumn = (names) => {
+      for (const name of names) {
+        const key = normalizeHeader(name);
+        const index = headers.indexOf(key);
+        if (index >= 0 && headerLabels[index]) return headerLabels[index];
+      }
+      return '';
+    };
     const mapping = options.mapping || {};
+    Object.entries({
+      type: [mapping.type, 'type', 'transaction type', 'aktion', 'typ', 'side'],
+      quantity: [mapping.quantity, 'quantity', 'shares', 'stück', 'stueck', 'anzahl'],
+      price: [mapping.price, 'price', 'kurs'],
+      grossAmount: [mapping.grossAmount, 'amount', 'gross amount', 'betrag', 'total'],
+      fees: [mapping.fees, 'fees', 'fee', 'kosten', 'gebühr'],
+      taxes: [mapping.taxes, 'tax', 'taxes', 'steuer'],
+      currency: [mapping.currency, 'currency', 'währung', 'waehrung'],
+      symbol: [mapping.symbol, 'symbol', 'ticker', 'wertpapier'],
+      isin: [mapping.isin, 'isin'],
+      name: [mapping.name, 'name', 'instrument', 'description'],
+      tradeDate: [mapping.tradeDate, 'trade date', 'date', 'datum'],
+      settlementDate: [mapping.settlementDate, 'settlement date', 'valuta']
+    }).forEach(([field, names]) => {
+      resolvedMapping[field] = findColumn(names);
+    });
     const transactions = objects.map((row) => {
       const typeRaw = pick(row, [mapping.type, 'type', 'transaction type', 'aktion', 'typ', 'side']);
       const type = /sell|verkauf/i.test(typeRaw) ? 'SELL' : /buy|kauf/i.test(typeRaw) ? 'BUY' : String(typeRaw || 'UNKNOWN').toUpperCase();
@@ -486,15 +647,25 @@
       tx.id = simpleHash([tx.broker, tx.accountId, tx.tradeDate, tx.type, tx.symbol || tx.isin, tx.quantity, tx.grossAmount, tx.sourceRow].join('|'));
       if (!tx.symbol && !tx.isin) tx.warnings.push('Missing symbol/ISIN.');
       if (!Number.isFinite(tx.quantity)) tx.errors.push('Missing quantity.');
+      if (!Number.isFinite(tx.price) && !Number.isFinite(tx.grossAmount) && ['BUY', 'SELL'].includes(tx.type)) tx.warnings.push('Missing price or gross amount.');
       return tx;
     });
+    const requiredFieldsMissing = [];
+    if (!resolvedMapping.type) requiredFieldsMissing.push('type');
+    if (!resolvedMapping.quantity) requiredFieldsMissing.push('quantity');
+    if (!resolvedMapping.price && !resolvedMapping.grossAmount) requiredFieldsMissing.push('price or amount');
+    if (!resolvedMapping.symbol && !resolvedMapping.isin) requiredFieldsMissing.push('symbol or ISIN');
+    const hasTransactionErrors = transactions.some(tx => (tx.errors || []).length);
     return {
       importId: `local_${Date.now().toString(36)}`,
       detectedBroker: options.broker || detection.broker,
       adapter: detection.adapter,
       confidence: options.broker ? 0.75 : detection.confidence,
       reason: detection.reason,
-      mappingRequired: detection.confidence < 0.5,
+      headers: headerLabels.filter(Boolean),
+      fieldMapping: resolvedMapping,
+      requiredFieldsMissing,
+      mappingRequired: requiredFieldsMissing.length > 0 || hasTransactionErrors || objects.length === 0,
       rowCount: objects.length,
       transactions,
       symbols: [...new Set(transactions.map(tx => tx.isin || tx.symbol).filter(Boolean))],
@@ -602,6 +773,9 @@
     optimizeSaleForTarget,
     optimizePortfolio,
     generateTaxReport,
+    normalizeImportTransaction,
+    groupImportTransactions,
+    buildDepotFromTransactions,
     buildAlerts,
     evaluateAlertRules,
     serializeRowsCsv,

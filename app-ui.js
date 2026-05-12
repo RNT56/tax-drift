@@ -8,6 +8,25 @@ const ui = {
   apiStatusChip: document.getElementById('apiStatusChip'),
   apiStatusLabel: document.getElementById('apiStatusLabel'),
   authStatusBtn: document.getElementById('authStatusBtn'),
+  routeButtons: [...document.querySelectorAll('[data-app-route]')],
+  calculatorPageSections: [...document.querySelectorAll('[data-calculator-page]')],
+  depotPage: document.getElementById('depotPage'),
+  depotSummary: document.getElementById('depotSummary'),
+  depotImportStatus: document.getElementById('depotImportStatus'),
+  depotImportFile: document.getElementById('depotImportFile'),
+  depotImportFileName: document.getElementById('depotImportFileName'),
+  depotImportPreview: document.getElementById('depotImportPreview'),
+  depotCommitImportBtn: document.getElementById('depotCommitImportBtn'),
+  depotClearImportBtn: document.getElementById('depotClearImportBtn'),
+  depotSaveWorkspaceBtn: document.getElementById('depotSaveWorkspaceBtn'),
+  depotSyncWorkspaceBtn: document.getElementById('depotSyncWorkspaceBtn'),
+  depotSourceList: document.getElementById('depotSourceList'),
+  depotPositionsTable: document.getElementById('depotPositionsTable'),
+  depotPositionCount: document.getElementById('depotPositionCount'),
+  depotAccountList: document.getElementById('depotAccountList'),
+  depotAccountCount: document.getElementById('depotAccountCount'),
+  depotCashEventList: document.getElementById('depotCashEventList'),
+  depotCashEventCount: document.getElementById('depotCashEventCount'),
   priceTimestamp: document.getElementById('priceTimestamp'),
   priceSourceLabel: document.getElementById('priceSourceLabel'),
   priceTimeLabel: document.getElementById('priceTimeLabel'),
@@ -83,7 +102,9 @@ const ui = {
   saveWorkspaceBtn: document.getElementById('saveWorkspaceBtn'),
   loadWorkspaceBtn: document.getElementById('loadWorkspaceBtn'),
   syncWorkspaceBtn: document.getElementById('syncWorkspaceBtn'),
+  workspaceSyncStatus: document.getElementById('workspaceSyncStatus'),
   brokerImportFile: document.getElementById('brokerImportFile'),
+  brokerImportFileName: document.getElementById('brokerImportFileName'),
   importPreview: document.getElementById('importPreview'),
   commitImportBtn: document.getElementById('commitImportBtn'),
   clearImportBtn: document.getElementById('clearImportBtn'),
@@ -139,6 +160,9 @@ const ui = {
   riskFlagList: document.getElementById('riskFlagList'),
   riskCatalogList: document.getElementById('riskCatalogList'),
   researchThesis: document.getElementById('researchThesis'),
+  aiProviderSelect: document.getElementById('aiProviderSelect'),
+  aiModelSelect: document.getElementById('aiModelSelect'),
+  aiProviderStatus: document.getElementById('aiProviderStatus'),
   generateResearchMemoBtn: document.getElementById('generateResearchMemoBtn'),
   researchMemoStatus: document.getElementById('researchMemoStatus'),
   researchMemoOutput: document.getElementById('researchMemoOutput'),
@@ -153,6 +177,10 @@ const ui = {
   installPromptText: document.getElementById('installPromptText'),
   installPromptBtn: document.getElementById('installPromptBtn'),
   dismissInstallPrompt: document.getElementById('dismissInstallPrompt'),
+  updatePrompt: document.getElementById('updatePrompt'),
+  updatePromptText: document.getElementById('updatePromptText'),
+  reloadUpdateBtn: document.getElementById('reloadUpdateBtn'),
+  dismissUpdatePrompt: document.getElementById('dismissUpdatePrompt'),
   sellChips: [...document.querySelectorAll('.chip--sell')],
   fxChips: [...document.querySelectorAll('[data-fx-mode]')],
   hurdleRadios: [...document.querySelectorAll('[name="hurdleMode"]')]
@@ -171,16 +199,46 @@ let activeWorkspaceId = null;
 let importedTransactions = [];
 let importedLots = [];
 let pendingImportPreview = null;
+let pendingImportText = '';
+let pendingImportMeta = null;
 let portfolioPositions = [];
 let portfolioScenarios = [];
 let activeScenarioId = null;
 let lastOptimizerResult = null;
+let lastDepotBuild = null;
 let fxFetchTimer = null;
 let fxAbort = null;
 let optimizerRerunTimer = null;
 let decisionScenarioCases = [];
 let lastDecisionResult = null;
 let researchMemos = [];
+let aiProviderCatalog = [];
+let pendingAiProviderSelection = '';
+let pendingAiModelSelection = '';
+let identityLoadPromise = null;
+let identityInitialized = false;
+let waitingServiceWorker = null;
+let serviceWorkerRefreshing = false;
+
+function setAppRoute(route = 'calculator') {
+  const active = route === 'depot' ? 'depot' : 'calculator';
+  ui.routeButtons.forEach((button) => {
+    const selected = button.dataset.appRoute === active;
+    button.classList.toggle('is-active', selected);
+    button.setAttribute('aria-current', selected ? 'page' : 'false');
+  });
+  ui.calculatorPageSections.forEach(section => { section.hidden = active !== 'calculator'; });
+  if (ui.depotPage) ui.depotPage.hidden = active !== 'depot';
+  document.body.classList.toggle('is-depot-route', active === 'depot');
+  if (window.location.hash !== `#${active}`) {
+    history.replaceState(null, '', `#${active}`);
+  }
+  if (active === 'depot') renderDepotOverview();
+}
+
+function routeFromHash() {
+  return String(window.location.hash || '').replace(/^#/, '') === 'depot' ? 'depot' : 'calculator';
+}
 
 /* ── Lots manager ──────────────────────────────────────────────────── */
 function addLot(sharesVal, priceVal) {
@@ -431,6 +489,13 @@ function updatePortfolio(input, output) {
 /* ── Workspace / broker import / FIFO ──────────────────────────────── */
 const WORKSPACE_KEY = 'taxswitch_workspace_v1';
 
+function setWorkspaceSyncStatus(text, tone = '') {
+  if (!ui.workspaceSyncStatus) return;
+  ui.workspaceSyncStatus.textContent = text;
+  ui.workspaceSyncStatus.classList.remove('is-local', 'is-synced', 'is-error', 'is-syncing');
+  if (tone) ui.workspaceSyncStatus.classList.add(`is-${tone}`);
+}
+
 function buildWorkspaceSnapshot() {
   const input = typeof getInputs === 'function' ? getInputs() : {};
   return window.TaxWorkspace?.createWorkspace
@@ -481,8 +546,10 @@ function buildWorkspaceSnapshot() {
 function saveWorkspaceLocal(silent = false) {
   try {
     localStorage.setItem(WORKSPACE_KEY, JSON.stringify(buildWorkspaceSnapshot()));
+    setWorkspaceSyncStatus('Saved locally on this device.', 'local');
     if (!silent) showToast('Workspace saved locally');
   } catch(e) {
+    setWorkspaceSyncStatus('Local workspace save failed.', 'error');
     if (!silent) showToast('Workspace save failed');
   }
 }
@@ -528,8 +595,13 @@ function applyWorkspaceSnapshot(workspace) {
   researchMemos = Array.isArray(workspace?.researchMemos) ? workspace.researchMemos : [];
   localAlertRules = Array.isArray(workspace?.watchRules) ? workspace.watchRules : localAlertRules;
   lastOptimizerResult = portfolioScenarios.find(item => item.id === activeScenarioId)?.optimizerResult || null;
-  importedTransactions = workspace?.imports?.[0]?.transactions || workspace?.imports || [];
-  importedLots = workspace?.positions?.[0]?.lots || workspace?.lots || [];
+  importedTransactions = Array.isArray(workspace?.imports)
+    ? workspace.imports.flatMap(item => Array.isArray(item.transactions) ? item.transactions : (item.type ? [item] : []))
+    : [];
+  importedLots = workspace?.positions?.find(position => position.lots?.length)?.lots || workspace?.lots || [];
+  if (importedTransactions.length && window.TaxWorkspace?.buildDepotFromTransactions) {
+    lastDepotBuild = window.TaxWorkspace.buildDepotFromTransactions(importedTransactions, { existingPositions: portfolioPositions });
+  }
   applyImportedLotsToInputs();
   renderImportPreview({
     rowCount: importedTransactions.length,
@@ -550,8 +622,10 @@ function loadWorkspaceLocal() {
       return;
     }
     applyWorkspaceSnapshot(JSON.parse(raw));
+    setWorkspaceSyncStatus('Loaded the local workspace copy.', 'local');
     showToast('Workspace loaded');
   } catch(e) {
+    setWorkspaceSyncStatus('Local workspace load failed.', 'error');
     showToast('Workspace load failed');
   }
 }
@@ -560,10 +634,12 @@ async function syncWorkspaceBackend() {
   const token = await getPremiumAuthToken();
   if (!token) {
     saveWorkspaceLocal(true);
+    setWorkspaceSyncStatus('Saved locally. Sign in or enter an auth token to sync backend storage.', 'local');
     showToast('Saved locally; sign in for backend sync');
     return;
   }
   if (window.location.protocol === 'file:') {
+    setWorkspaceSyncStatus('Backend sync needs Netlify dev or a deployed site.', 'error');
     showToast('Backend sync needs Netlify dev or deploy');
     return;
   }
@@ -571,18 +647,31 @@ async function syncWorkspaceBackend() {
   const path = activeWorkspaceId
     ? `/.netlify/functions/workspace?id=${encodeURIComponent(activeWorkspaceId)}`
     : '/.netlify/functions/workspaces';
-  const response = await fetch(path, {
-    method: activeWorkspaceId ? 'PUT' : 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-    body: JSON.stringify(snapshot)
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) {
-    showToast(payload.error?.message || 'Backend sync failed');
-    return;
+  if (ui.syncWorkspaceBtn) ui.syncWorkspaceBtn.disabled = true;
+  setWorkspaceSyncStatus(activeWorkspaceId ? 'Updating encrypted backend workspace...' : 'Creating encrypted backend workspace...', 'syncing');
+  try {
+    const response = await fetch(path, {
+      method: activeWorkspaceId ? 'PUT' : 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify(snapshot)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) {
+      const message = payload.error?.message || payload.error || 'Backend sync failed';
+      setWorkspaceSyncStatus(message, 'error');
+      showToast(message);
+      return;
+    }
+    activeWorkspaceId = payload.data?.workspace?.id || payload.workspace?.id || activeWorkspaceId;
+    const updatedAt = payload.data?.workspace?.updatedAt || payload.workspace?.updatedAt || new Date().toISOString();
+    setWorkspaceSyncStatus(`Synced backend workspace ${activeWorkspaceId || ''} at ${new Date(updatedAt).toLocaleTimeString('de-DE')}.`, 'synced');
+    showToast('Workspace synced');
+  } catch (error) {
+    setWorkspaceSyncStatus(error.message || 'Backend sync failed.', 'error');
+    showToast('Backend sync failed');
+  } finally {
+    if (ui.syncWorkspaceBtn) ui.syncWorkspaceBtn.disabled = false;
   }
-  activeWorkspaceId = payload.data?.workspace?.id || payload.workspace?.id || activeWorkspaceId;
-  showToast('Workspace synced');
 }
 
 function refreshAuthStatus() {
@@ -590,18 +679,52 @@ function refreshAuthStatus() {
   const user = window.netlifyIdentity?.currentUser?.();
   ui.authStatusBtn.textContent = user ? 'Signed in' : 'Sign in';
   ui.authStatusBtn.classList.toggle('is-active', !!user);
+  if (user) setWorkspaceSyncStatus('Signed in. Backend sync is available.', 'synced');
 }
 
-function toggleAuthStatus() {
-  if (!window.netlifyIdentity) {
+function loadNetlifyIdentityWidget() {
+  if (window.netlifyIdentity) return Promise.resolve(window.netlifyIdentity);
+  if (identityLoadPromise) return identityLoadPromise;
+  identityLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://identity.netlify.com/v1/netlify-identity-widget.js';
+    script.async = true;
+    script.onload = () => window.netlifyIdentity ? resolve(window.netlifyIdentity) : reject(new Error('Netlify Identity did not initialize.'));
+    script.onerror = () => reject(new Error('Netlify Identity is unavailable.'));
+    document.head.appendChild(script);
+  });
+  return identityLoadPromise;
+}
+
+async function initializeNetlifyIdentity() {
+  const identity = await loadNetlifyIdentityWidget();
+  if (!identityInitialized && identity?.on) {
+    identity.on('init', refreshAuthStatus);
+    identity.on('login', () => { refreshAuthStatus(); identity.close(); });
+    identity.on('logout', () => {
+      refreshAuthStatus();
+      setWorkspaceSyncStatus('Signed out. Workspace changes stay local until synced again.', 'local');
+    });
+    identity.init();
+    identityInitialized = true;
+  }
+  refreshAuthStatus();
+  return identity;
+}
+
+async function toggleAuthStatus() {
+  try {
+    const identity = await initializeNetlifyIdentity();
+    if (identity.currentUser()) {
+      identity.logout();
+      return;
+    }
+    identity.open('login');
+  } catch (error) {
+    setWorkspaceSyncStatus(error.message || 'Netlify Identity is unavailable.', 'error');
     showToast('Netlify Identity is unavailable');
     return;
   }
-  if (window.netlifyIdentity.currentUser()) {
-    window.netlifyIdentity.logout();
-    return;
-  }
-  window.netlifyIdentity.open('login');
 }
 
 async function getPremiumAuthToken() {
@@ -616,42 +739,193 @@ async function getPremiumAuthToken() {
   }
 }
 
-function renderImportPreview(preview) {
-  if (!ui.importPreview) return;
-  if (!preview) {
-    ui.importPreview.hidden = true;
-    ui.importPreview.textContent = '';
-    if (ui.commitImportBtn) ui.commitImportBtn.disabled = true;
-    return;
-  }
-  ui.importPreview.hidden = false;
-  ui.importPreview.innerHTML = '';
-  const summary = document.createElement('div');
-  summary.className = 'import-preview__summary';
-  summary.textContent = `${preview.detectedBroker || 'generic-csv'} · ${preview.adapter || 'adapter'} · ${Math.round((preview.confidence || 0) * 100)}% · ${preview.rowCount || 0} rows · ${(preview.symbols || []).slice(0, 4).join(', ') || 'no symbol'}`;
-  ui.importPreview.appendChild(summary);
-  const statusMessages = [
-    preview.mappingRequired ? 'Mapping required before commit.' : '',
-    preview.reason || '',
-    ...(preview.warnings || []),
-    ...(preview.errors || [])
-  ].filter(Boolean);
-  statusMessages.slice(0, 6).forEach((message) => {
-    const row = document.createElement('div');
-    row.className = 'import-preview__message';
-    row.textContent = message;
-    ui.importPreview.appendChild(row);
-  });
-  const sample = document.createElement('div');
-  sample.className = 'import-preview__sample';
-  sample.textContent = (preview.transactions || []).slice(0, 3).map(tx => `${tx.tradeDate || 'no date'} ${tx.type} ${tx.quantity || '—'} ${tx.symbol || tx.isin || '—'}`).join(' · ');
-  ui.importPreview.appendChild(sample);
-  if (ui.commitImportBtn) ui.commitImportBtn.disabled = !!(preview.errors || []).length || preview.mappingRequired || !(preview.transactions || []).length;
+const IMPORT_MAPPING_FIELDS = [
+  { key: 'tradeDate', label: 'Trade date', required: false },
+  { key: 'type', label: 'Type', required: true },
+  { key: 'quantity', label: 'Quantity', required: true },
+  { key: 'price', label: 'Price', required: false },
+  { key: 'grossAmount', label: 'Gross amount', required: false },
+  { key: 'fees', label: 'Fees', required: false },
+  { key: 'currency', label: 'Currency', required: false },
+  { key: 'symbol', label: 'Symbol', required: false },
+  { key: 'isin', label: 'ISIN', required: false },
+  { key: 'name', label: 'Name', required: false }
+];
+
+function hasImportBlockingErrors(preview) {
+  return (preview?.transactions || []).some(tx => (tx.errors || []).length);
 }
 
-async function parseBrokerImportFile() {
-  const file = ui.brokerImportFile?.files?.[0];
+function collectImportTransactionMessages(preview) {
+  return (preview?.transactions || []).flatMap((tx) => [
+    ...(tx.errors || []).map(message => `Row ${tx.sourceRow || '?'}: ${message}`),
+    ...(tx.warnings || []).map(message => `Row ${tx.sourceRow || '?'}: ${message}`)
+  ]);
+}
+
+function updateImportFileLabels(file = null) {
+  const text = file?.name || 'No file selected';
+  if (ui.depotImportFileName) ui.depotImportFileName.textContent = text;
+  if (ui.brokerImportFileName) ui.brokerImportFileName.textContent = text;
+}
+
+function getImportPreviewStats(preview) {
+  const transactions = preview?.transactions || [];
+  const groups = window.TaxWorkspace?.groupImportTransactions
+    ? window.TaxWorkspace.groupImportTransactions(transactions)
+    : [];
+  const accounts = new Set(groups.map(group => [group.broker, group.accountId || 'default'].join('|')));
+  return {
+    instruments: groups.length || (preview?.symbols || []).length,
+    accounts: accounts.size,
+    transactions: transactions.length
+  };
+}
+
+function getImportMappingFromForm(form) {
+  return [...form.querySelectorAll('[data-import-mapping-field]')].reduce((mapping, select) => {
+    if (select.value) mapping[select.dataset.importMappingField] = select.value;
+    return mapping;
+  }, {});
+}
+
+function reparseCsvImportWithMapping(form) {
+  if (!pendingImportText || !pendingImportMeta) return;
+  const mapping = getImportMappingFromForm(form);
+  pendingImportPreview = window.TaxWorkspace.parseBrokerCsv(pendingImportText, {
+    ...pendingImportMeta,
+    mapping
+  });
+  renderImportPreview(pendingImportPreview);
+}
+
+function renderImportMapping(preview) {
+  const headers = Array.isArray(preview?.headers) ? preview.headers : [];
+  if (!headers.length || !pendingImportText) return null;
+  const form = document.createElement('form');
+  form.className = 'import-mapping';
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    reparseCsvImportWithMapping(form);
+  });
+
+  const heading = document.createElement('div');
+  heading.className = 'import-mapping__heading';
+  const title = document.createElement('strong');
+  title.textContent = preview.mappingRequired ? 'Map CSV columns' : 'Review CSV mapping';
+  const hint = document.createElement('span');
+  hint.textContent = preview.requiredFieldsMissing?.length
+    ? `Missing: ${preview.requiredFieldsMissing.join(', ')}`
+    : 'Detected columns can be adjusted before using FIFO lots.';
+  heading.append(title, hint);
+  form.appendChild(heading);
+
+  const grid = document.createElement('div');
+  grid.className = 'import-mapping__grid';
+  const fieldMapping = preview.fieldMapping || {};
+  IMPORT_MAPPING_FIELDS.forEach((field) => {
+    const label = document.createElement('label');
+    label.className = 'import-mapping__field';
+    const text = document.createElement('span');
+    text.textContent = field.required ? `${field.label} *` : field.label;
+    const select = document.createElement('select');
+    select.dataset.importMappingField = field.key;
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = 'Not mapped';
+    select.appendChild(empty);
+    headers.forEach((header) => {
+      const option = document.createElement('option');
+      option.value = header;
+      option.textContent = header;
+      option.selected = fieldMapping[field.key] === header;
+      select.appendChild(option);
+    });
+    label.append(text, select);
+    grid.appendChild(label);
+  });
+  form.appendChild(grid);
+
+  const actions = document.createElement('div');
+  actions.className = 'import-mapping__actions';
+  const apply = document.createElement('button');
+  apply.type = 'submit';
+  apply.className = 'ghost-button ghost-button--tight';
+  apply.textContent = 'Apply mapping';
+  actions.appendChild(apply);
+  form.appendChild(actions);
+  return form;
+}
+
+function renderImportPreview(preview) {
+  const targets = [ui.importPreview, ui.depotImportPreview].filter(Boolean);
+  if (!targets.length) return;
+  if (!preview) {
+    targets.forEach((target) => {
+      target.hidden = true;
+      target.textContent = '';
+    });
+    [ui.commitImportBtn, ui.depotCommitImportBtn].forEach(button => { if (button) button.disabled = true; });
+    if (ui.depotImportStatus) ui.depotImportStatus.textContent = 'No import loaded';
+    return;
+  }
+  targets.forEach((target) => {
+    target.hidden = false;
+    target.innerHTML = '';
+    const stats = getImportPreviewStats(preview);
+    const summary = document.createElement('div');
+    summary.className = 'import-preview__summary';
+    summary.textContent = `${preview.detectedBroker || 'generic-csv'} · ${preview.adapter || 'adapter'} · ${Math.round((preview.confidence || 0) * 100)}% · ${preview.rowCount || 0} rows`;
+    target.appendChild(summary);
+    if (stats.transactions) {
+      const chips = document.createElement('div');
+      chips.className = 'import-preview__chips';
+      [
+        `${stats.transactions} tx`,
+        `${stats.instruments} instruments`,
+        `${stats.accounts || 1} accounts`
+      ].forEach((label) => {
+        const chip = document.createElement('span');
+        chip.textContent = label;
+        chips.appendChild(chip);
+      });
+      target.appendChild(chips);
+    }
+    const statusMessages = [
+      preview.mappingRequired ? 'Mapping required before commit.' : '',
+      preview.reason || '',
+      ...(preview.warnings || []),
+      ...(preview.errors || []),
+      ...collectImportTransactionMessages(preview)
+    ].filter(Boolean);
+    statusMessages.slice(0, 6).forEach((message) => {
+      const row = document.createElement('div');
+      row.className = 'import-preview__message';
+      row.textContent = message;
+      target.appendChild(row);
+    });
+    const sample = document.createElement('div');
+    sample.className = 'import-preview__sample';
+    sample.textContent = (preview.transactions || []).slice(0, 3).map(tx => `${tx.tradeDate || 'no date'} ${tx.type} ${tx.quantity || '—'} ${tx.symbol || tx.isin || '—'}`).join(' · ');
+    target.appendChild(sample);
+    const mapping = renderImportMapping(preview);
+    if (mapping) target.appendChild(mapping);
+  });
+  const disabled = !!(preview.errors || []).length
+    || hasImportBlockingErrors(preview)
+    || preview.mappingRequired
+    || !(preview.transactions || []).length;
+  [ui.commitImportBtn, ui.depotCommitImportBtn].forEach(button => { if (button) button.disabled = disabled; });
+  const stats = getImportPreviewStats(preview);
+  if (ui.depotImportStatus) ui.depotImportStatus.textContent = stats.transactions ? `${stats.transactions} tx · ${stats.instruments} instruments` : `${preview.rowCount || 0} rows ready`;
+}
+
+async function parseBrokerImportFile(event) {
+  const file = event?.target?.files?.[0] || ui.depotImportFile?.files?.[0] || ui.brokerImportFile?.files?.[0];
   if (!file) return;
+  updateImportFileLabels(file);
+  pendingImportText = '';
+  pendingImportMeta = null;
   if (/\.pdf$/i.test(file.name)) {
     if (window.location.protocol === 'file:') {
       pendingImportPreview = { detectedBroker: 'pdf', rowCount: 0, transactions: [], symbols: [], warnings: [], errors: ['PDF import requires Netlify dev or deploy. CSV import works locally from file mode.'] };
@@ -685,9 +959,13 @@ async function parseBrokerImportFile() {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      pendingImportPreview = window.TaxWorkspace.parseBrokerCsv(String(reader.result || ''), { fileName: file.name });
+      pendingImportText = String(reader.result || '');
+      pendingImportMeta = { fileName: file.name, contentType: file.type || 'text/csv' };
+      pendingImportPreview = window.TaxWorkspace.parseBrokerCsv(pendingImportText, pendingImportMeta);
       renderImportPreview(pendingImportPreview);
     } catch(e) {
+      pendingImportText = '';
+      pendingImportMeta = null;
       pendingImportPreview = { detectedBroker: 'generic-csv', rowCount: 0, transactions: [], symbols: [], warnings: [], errors: [e.message || 'Import parse failed.'] };
       renderImportPreview(pendingImportPreview);
     }
@@ -717,31 +995,40 @@ function applyImportedLotsToInputs() {
   if (typeof setCurrency === 'function') setCurrency(currencyEl?.value || importedLots[0]?.currency || 'EUR');
 }
 
+function rebuildDepotPositionsFromTransactions(transactions, importedAt) {
+  const manualPositions = portfolioPositions.filter(position => position.source !== 'import' && !position.importedTransactionCount);
+  lastDepotBuild = window.TaxWorkspace?.buildDepotFromTransactions
+    ? window.TaxWorkspace.buildDepotFromTransactions(transactions, { existingPositions: portfolioPositions, importedAt })
+    : { positions: [], warnings: [], errors: ['Depot builder is unavailable.'] };
+  portfolioPositions = [...manualPositions, ...(lastDepotBuild.positions || [])];
+  importedLots = (lastDepotBuild.positions || []).find(position => position.lots?.length)?.lots || [];
+  return lastDepotBuild;
+}
+
 function commitBrokerImport() {
   if (!pendingImportPreview?.transactions?.length) return;
-  const result = window.AppLedger?.buildOpenLotsFromTransactions
-    ? window.AppLedger.buildOpenLotsFromTransactions(pendingImportPreview.transactions)
-    : { lots: [], errors: ['FIFO ledger is unavailable.'] };
-  importedTransactions = pendingImportPreview.transactions;
-  importedLots = result.lots || [];
+  if (pendingImportPreview.mappingRequired || hasImportBlockingErrors(pendingImportPreview) || (pendingImportPreview.errors || []).length) {
+    renderImportPreview(pendingImportPreview);
+    showToast('Resolve import mapping first');
+    return;
+  }
+  const incoming = pendingImportPreview.transactions || [];
+  const existingIds = new Set(importedTransactions.map(tx => tx.id).filter(Boolean));
+  const deduped = incoming.filter(tx => !tx.id || !existingIds.has(tx.id));
+  importedTransactions = importedTransactions.concat(deduped);
+  const result = rebuildDepotPositionsFromTransactions(importedTransactions, new Date().toISOString());
   renderImportPreview({
     ...pendingImportPreview,
-    warnings: [...(pendingImportPreview.warnings || []), `Committed ${importedLots.length} open FIFO lots.`],
+    warnings: [
+      ...(pendingImportPreview.warnings || []),
+      `Committed ${deduped.length} transactions into ${(result.positions || []).length} Depot positions.`,
+      deduped.length < incoming.length ? `Skipped ${incoming.length - deduped.length} duplicate transactions.` : ''
+    ].filter(Boolean),
     errors: result.errors || []
   });
   applyImportedLotsToInputs();
-  const importedPosition = currentPositionFromInputs();
-  if (importedPosition) {
-    const enrichedPosition = {
-      ...importedPosition,
-      lots: importedLots,
-      importedTransactionCount: importedTransactions.length
-    };
-    portfolioPositions = [...portfolioPositions.filter(item => item.id !== enrichedPosition.id), enrichedPosition];
-  } else if (portfolioPositions.length) {
-    portfolioPositions[0] = { ...portfolioPositions[0], lots: importedLots, importedTransactionCount: importedTransactions.length };
-  }
   renderPortfolioWorkspace();
+  renderDepotOverview();
   saveWorkspaceLocal(true);
   if (typeof calculate === 'function') calculate();
   queueOptimizerRerun();
@@ -749,13 +1036,19 @@ function commitBrokerImport() {
 
 function clearBrokerImport() {
   pendingImportPreview = null;
+  pendingImportText = '';
+  pendingImportMeta = null;
   importedTransactions = [];
   importedLots = [];
-  portfolioPositions = portfolioPositions.map(position => ({ ...position, lots: [], importedTransactionCount: 0 }));
+  lastDepotBuild = null;
+  portfolioPositions = portfolioPositions.filter(position => position.source !== 'import' && !position.importedTransactionCount);
   renderImportPreview(null);
   if (ui.brokerImportFile) ui.brokerImportFile.value = '';
+  if (ui.depotImportFile) ui.depotImportFile.value = '';
+  updateImportFileLabels(null);
   saveWorkspaceLocal(true);
   renderPortfolioWorkspace();
+  renderDepotOverview();
   if (typeof calculate === 'function') calculate();
 }
 
@@ -860,6 +1153,138 @@ function renderPortfolioWorkspace() {
   renderTargetsList();
   renderOptimizerResult(lastOptimizerResult);
   renderScenarios();
+  renderDepotOverview();
+}
+
+function getCurrentDepotBuild() {
+  if (window.TaxWorkspace?.buildDepotFromTransactions && importedTransactions.length) {
+    lastDepotBuild = window.TaxWorkspace.buildDepotFromTransactions(importedTransactions, { existingPositions: portfolioPositions });
+  }
+  return lastDepotBuild || { positions: portfolioPositions.filter(position => position.source === 'import' || position.importedTransactionCount), accounts: [], cashEvents: [], warnings: [], errors: [] };
+}
+
+function setDepotEmpty(node, text) {
+  if (!node) return;
+  node.innerHTML = '';
+  const empty = document.createElement('div');
+  empty.className = 'depot-empty';
+  empty.innerHTML = `<span>${localEscapeHtml(text)}</span>`;
+  node.appendChild(empty);
+}
+
+function renderDepotOverview() {
+  if (!ui.depotPage) return;
+  const depot = getCurrentDepotBuild();
+  const positions = portfolioPositions.length ? portfolioPositions : depot.positions || [];
+  const importedPositions = positions.filter(position => position.source === 'import' || position.importedTransactionCount);
+  const baseCurrency = document.getElementById('currencyCode')?.value || 'EUR';
+  const totalValue = positions.reduce((sum, position) => sum + (Number(position.shares) || 0) * (Number(position.currentPrice) || 0) * (Number(position.currentFxRate) || 1), 0);
+  const importedValue = importedPositions.reduce((sum, position) => sum + (Number(position.shares) || 0) * (Number(position.currentPrice) || 0) * (Number(position.currentFxRate) || 1), 0);
+  const transactionCount = importedTransactions.length || depot.transactionCount || 0;
+  if (ui.depotSummary) {
+    ui.depotSummary.innerHTML = '';
+    [
+      ['Positions', String(positions.length), positions.length ? 'Live' : 'Empty'],
+      ['Imported value', formatCurrency(importedValue, baseCurrency), importedPositions.length ? 'Imported' : 'Waiting'],
+      ['Total value', formatCurrency(totalValue, baseCurrency), positions.length ? 'Current' : 'No holdings'],
+      ['Transactions', String(transactionCount), transactionCount ? 'Parsed' : 'None']
+    ].forEach(([label, value, meta]) => {
+      const item = document.createElement('div');
+      item.className = 'depot-summary__item';
+      item.innerHTML = `<span>${localEscapeHtml(label)}</span><strong>${localEscapeHtml(value)}</strong><small>${localEscapeHtml(meta)}</small>`;
+      ui.depotSummary.appendChild(item);
+    });
+  }
+  if (ui.depotPositionCount) ui.depotPositionCount.textContent = `${positions.length} positions`;
+  if (ui.depotPositionsTable) {
+    ui.depotPositionsTable.innerHTML = '';
+    if (!positions.length) {
+      setDepotEmpty(ui.depotPositionsTable, 'No positions yet. Import a broker file or add the current calculator position.');
+    } else {
+      const head = document.createElement('div');
+      head.className = 'depot-row depot-row--head';
+      ['Instrument', 'Broker', 'Shares', 'Cost', 'Price', 'Value'].forEach(label => {
+        const cell = document.createElement('span');
+        cell.textContent = label;
+        head.appendChild(cell);
+      });
+      ui.depotPositionsTable.appendChild(head);
+      positions.forEach((position) => {
+        const shares = Number(position.shares) || 0;
+        const price = Number(position.currentPrice) || 0;
+        const fx = Number(position.currentFxRate) || 1;
+        const value = shares * price * fx;
+        const row = document.createElement('div');
+        row.className = 'depot-row';
+        [
+          `${position.symbol || position.name || position.isin || 'Position'}${position.isin ? ` · ${position.isin}` : ''}`,
+          position.broker || 'Manual',
+          formatShares(shares),
+          formatCurrency(Number(position.buyPrice || 0) * shares, position.currency || baseCurrency),
+          formatCurrency(price, position.currency || baseCurrency),
+          formatCurrency(value, baseCurrency)
+        ].forEach((text, index) => {
+          const cell = document.createElement(index === 0 ? 'strong' : 'span');
+          cell.dataset.label = ['Instrument', 'Broker', 'Shares', 'Cost', 'Price', 'Value'][index];
+          cell.textContent = text;
+          row.appendChild(cell);
+        });
+        ui.depotPositionsTable.appendChild(row);
+      });
+    }
+  }
+  const accounts = depot.accounts || [];
+  if (ui.depotAccountCount) ui.depotAccountCount.textContent = `${accounts.length} accounts`;
+  if (ui.depotAccountList) {
+    ui.depotAccountList.innerHTML = '';
+    if (!accounts.length) setDepotEmpty(ui.depotAccountList, 'No imported accounts yet.');
+    accounts.forEach((account) => {
+      const item = document.createElement('div');
+      item.className = 'depot-list__item';
+      item.innerHTML = `<strong>${localEscapeHtml(account.broker || 'Broker')}</strong><span class="depot-list__meta">${localEscapeHtml(account.accountId || 'default account')} · ${account.positionCount || 0} positions</span>`;
+      ui.depotAccountList.appendChild(item);
+    });
+  }
+  const cashEvents = depot.cashEvents || [];
+  if (ui.depotCashEventCount) ui.depotCashEventCount.textContent = `${cashEvents.length} events`;
+  if (ui.depotCashEventList) {
+    ui.depotCashEventList.innerHTML = '';
+    if (!cashEvents.length) setDepotEmpty(ui.depotCashEventList, 'No dividends, fees or standalone tax events imported.');
+    cashEvents.slice(-8).forEach((tx) => {
+      const amount = Number.isFinite(tx.grossAmount) ? tx.grossAmount : 0;
+      const item = document.createElement('div');
+      item.className = 'depot-list__item';
+      item.innerHTML = `<strong>${localEscapeHtml(tx.type || 'Event')} ${localEscapeHtml(tx.symbol || tx.isin || '')}</strong><span class="depot-list__meta">${localEscapeHtml(tx.tradeDate || tx.date || 'no date')} · ${localEscapeHtml(formatCurrency(amount, tx.currency || baseCurrency))}</span>`;
+      ui.depotCashEventList.appendChild(item);
+    });
+  }
+  if (ui.depotSourceList) {
+    ui.depotSourceList.innerHTML = '';
+    const sources = importedTransactions.reduce((map, tx) => {
+      const key = [tx.broker || 'generic', tx.accountId || 'default'].join('|');
+      map.set(key, { broker: tx.broker || 'generic', accountId: tx.accountId || '', count: (map.get(key)?.count || 0) + 1 });
+      return map;
+    }, new Map());
+    if (!sources.size) {
+      [
+        ['Generic CSV', 'Ready'],
+        ['Trade Republic', 'CSV/PDF'],
+        ['Scalable/Baader', 'CSV/PDF'],
+        ['IBKR Flex', 'CSV']
+      ].forEach(([name, state]) => {
+        const item = document.createElement('div');
+        item.className = 'depot-list__item depot-list__item--adapter';
+        item.innerHTML = `<strong>${localEscapeHtml(name)}</strong><span class="depot-badge">${localEscapeHtml(state)}</span>`;
+        ui.depotSourceList.appendChild(item);
+      });
+    }
+    [...sources.values()].forEach((source) => {
+      const item = document.createElement('div');
+      item.className = 'depot-list__item';
+      item.innerHTML = `<strong>${localEscapeHtml(source.broker)}</strong><span class="depot-list__meta">${localEscapeHtml(source.accountId || 'default account')} · ${source.count} transactions</span>`;
+      ui.depotSourceList.appendChild(item);
+    });
+  }
 }
 
 function renderPositionsList() {
@@ -1217,6 +1642,91 @@ function localEscapeHtml(value) {
     .replace(/'/g, '&#039;');
 }
 
+function setSelectOptions(select, options, selectedValue = '') {
+  if (!select) return;
+  select.innerHTML = '';
+  options.forEach((item) => {
+    const option = document.createElement('option');
+    option.value = item.value;
+    option.textContent = item.label;
+    option.disabled = Boolean(item.disabled);
+    option.selected = item.value === selectedValue && !option.disabled;
+    select.appendChild(option);
+  });
+  if (selectedValue && [...select.options].some(option => option.value === selectedValue && !option.disabled)) {
+    select.value = selectedValue;
+  } else {
+    const firstEnabled = [...select.options].find(option => !option.disabled);
+    if (firstEnabled) select.value = firstEnabled.value;
+  }
+  updateCustomSelect(select);
+}
+
+function updateAiModelSelect() {
+  const selectedProvider = ui.aiProviderSelect?.value || '';
+  const provider = aiProviderCatalog.find(item => item.id === selectedProvider);
+  const previous = pendingAiModelSelection || ui.aiModelSelect?.value || '';
+  const options = provider?.models?.length
+    ? provider.models.map(model => ({ value: model.id, label: model.label || model.id }))
+    : [{ value: '', label: selectedProvider ? 'No models available' : 'No AI model', disabled: Boolean(selectedProvider) }];
+  setSelectOptions(ui.aiModelSelect, options, previous);
+  if (ui.aiModelSelect && (!ui.aiModelSelect.value || ui.aiModelSelect.options[ui.aiModelSelect.selectedIndex]?.disabled)) {
+    const firstEnabled = [...ui.aiModelSelect.options].find(option => !option.disabled);
+    if (firstEnabled) ui.aiModelSelect.value = firstEnabled.value;
+  }
+  pendingAiModelSelection = '';
+  updateCustomSelect(ui.aiModelSelect);
+}
+
+function renderAiProviderOptions() {
+  const selected = pendingAiProviderSelection || ui.aiProviderSelect?.value || '';
+  const options = [{ value: '', label: 'Evidence only' }].concat(aiProviderCatalog.map(provider => ({
+    value: provider.id,
+    label: provider.configured && provider.models?.length ? provider.label : `${provider.label} unavailable`,
+    disabled: !provider.configured || !provider.models?.length
+  })));
+  setSelectOptions(ui.aiProviderSelect, options, selected);
+  pendingAiProviderSelection = '';
+  updateAiModelSelect();
+  const configured = aiProviderCatalog.filter(provider => provider.configured && provider.models?.length).length;
+  if (ui.aiProviderStatus) {
+    ui.aiProviderStatus.textContent = configured
+      ? `${configured} AI provider${configured === 1 ? '' : 's'} configured on host.`
+      : 'No host AI provider key detected; memos use evidence only.';
+  }
+}
+
+async function loadAiProviderCatalog() {
+  if (!ui.aiProviderSelect || window.location?.protocol === 'file:') {
+    renderAiProviderOptions();
+    return;
+  }
+  try {
+    const response = await fetch('/.netlify/functions/ai-models');
+    const payload = await response.json().catch(() => ({}));
+    aiProviderCatalog = Array.isArray(payload.providers) ? payload.providers : [];
+    renderAiProviderOptions();
+  } catch {
+    aiProviderCatalog = [];
+    renderAiProviderOptions();
+    if (ui.aiProviderStatus) ui.aiProviderStatus.textContent = 'AI provider list is unavailable.';
+  }
+}
+
+function buildResearchDecisionContext() {
+  if (!lastDecisionResult) return null;
+  return {
+    generatedAt: lastDecisionResult.generatedAt,
+    valueCurrency: lastDecisionResult.valueCurrency,
+    scenarioAnalysis: lastDecisionResult.scenarioAnalysis,
+    assumptionQuality: lastDecisionResult.assumptionQuality,
+    riskFlags: lastDecisionResult.riskFlags,
+    taxLossHarvesting: lastDecisionResult.taxLossHarvesting,
+    portfolioRisk: lastDecisionResult.portfolioRisk,
+    tradeScenarios: lastDecisionResult.tradeScenarios
+  };
+}
+
 function ensureDecisionScenarioCases(input = {}) {
   if (!decisionScenarioCases.length && window.TaxDecision?.defaultScenarioCases) {
     decisionScenarioCases = window.TaxDecision.defaultScenarioCases(input);
@@ -1380,6 +1890,45 @@ function researchMemoStatusLabel(memo) {
   return memo?.status || 'memo';
 }
 
+function renderSourceEvidence(ids = []) {
+  return ids?.length ? `<small>Cites ${localEscapeHtml(ids.join(', '))}</small>` : '<small>Uncited by source evidence</small>';
+}
+
+function renderAiFeatureOutput(memo = {}) {
+  const ai = memo.ai || {};
+  if (!ai || !Object.keys(ai).length) return '';
+  const contradiction = ai.contradictionCheck || {};
+  const scenario = ai.scenarioGenerator || {};
+  const critic = ai.assumptionCritic || {};
+  const narrative = ai.reportNarrative || {};
+  const watch = ai.watchRuleGenerator || {};
+  const contradictionHtml = (contradiction.summary || contradiction.invalidatingEvidence?.length || contradiction.keyQuestions?.length)
+    ? `<article class="ai-feature-panel"><div class="ai-feature-panel__head"><span>Contradiction checker</span></div>${contradiction.summary ? `<p>${localEscapeHtml(contradiction.summary)}</p>` : ''}${contradiction.invalidatingEvidence?.length ? `<strong>Invalidating evidence</strong>${contradiction.invalidatingEvidence.map(item => `<p>${localEscapeHtml(item)}</p>`).join('')}` : ''}${contradiction.keyQuestions?.length ? `<strong>Questions</strong>${contradiction.keyQuestions.map(item => `<p>${localEscapeHtml(item)}</p>`).join('')}` : ''}${renderSourceEvidence(contradiction.sourceEvidenceIds)}</article>`
+    : '';
+  const scenarioRows = (scenario.cases || []).map(item => `
+    <div class="ai-scenario-row">
+      <strong>${localEscapeHtml(item.name)}</strong>
+      <span>${localEscapeHtml(formatPercent(item.probability))} prob · old ${localEscapeHtml(formatPercent(item.oldReturn))} · new ${localEscapeHtml(formatPercent(item.newReturn))}</span>
+      ${item.rationale ? `<small>${localEscapeHtml(item.rationale)}</small>` : ''}
+    </div>
+  `).join('');
+  const scenarioHtml = scenarioRows
+    ? `<article class="ai-feature-panel"><div class="ai-feature-panel__head"><span>Scenario generator</span><button type="button" class="ghost-button ghost-button--tight" data-ai-action="apply-scenarios">Apply</button></div>${scenario.summary ? `<p>${localEscapeHtml(scenario.summary)}</p>` : ''}<div class="ai-scenario-list">${scenarioRows}</div></article>`
+    : '';
+  const driverRows = (critic.drivers || []).map(item => `<div class="ai-driver-row"><strong>${localEscapeHtml(item.assumption)}</strong>${item.impact ? `<span>${localEscapeHtml(item.impact)}</span>` : ''}${item.weakness ? `<small>${localEscapeHtml(item.weakness)}</small>` : ''}${renderSourceEvidence(item.sourceEvidenceIds)}</div>`).join('');
+  const criticHtml = (critic.summary || driverRows)
+    ? `<article class="ai-feature-panel"><div class="ai-feature-panel__head"><span>Assumption critic</span></div>${critic.summary ? `<p>${localEscapeHtml(critic.summary)}</p>` : ''}${driverRows}</article>`
+    : '';
+  const narrativeHtml = narrative.memo
+    ? `<article class="ai-feature-panel"><div class="ai-feature-panel__head"><span>Report narrative</span></div><strong>${localEscapeHtml(narrative.title || 'AI report narrative')}</strong><p>${localEscapeHtml(narrative.memo)}</p></article>`
+    : '';
+  const watchRows = (watch.suggestions || []).map(item => `<div class="ai-watch-row"><strong>${localEscapeHtml(item.label)}</strong><span>${localEscapeHtml(item.type)} ${localEscapeHtml(item.direction || 'above')} ${localEscapeHtml(item.threshold)}</span>${item.rationale ? `<small>${localEscapeHtml(item.rationale)}</small>` : ''}${renderSourceEvidence(item.sourceEvidenceIds)}</div>`).join('');
+  const watchHtml = watchRows
+    ? `<article class="ai-feature-panel"><div class="ai-feature-panel__head"><span>Watch-rule generator</span><button type="button" class="ghost-button ghost-button--tight" data-ai-action="add-watch-rules">Add rules</button></div>${watch.summary ? `<p>${localEscapeHtml(watch.summary)}</p>` : ''}<div class="ai-watch-list">${watchRows}</div></article>`
+    : '';
+  return `<div class="ai-feature-grid">${contradictionHtml}${scenarioHtml}${criticHtml}${narrativeHtml}${watchHtml}</div>`;
+}
+
 function renderResearchMemo(memo) {
   if (!ui.researchMemoOutput) return;
   if (!memo) {
@@ -1389,14 +1938,17 @@ function renderResearchMemo(memo) {
   }
   ui.researchMemoStatus.textContent = `${researchMemoStatusLabel(memo)} · ${memo.generatedAt || ''}`;
   const aiPanel = memo.aiSummary
-    ? `<article class="ai-memo-panel"><span>AI enhancement</span><strong>${localEscapeHtml(memo.aiProvider || 'Configured AI endpoint')}</strong><p>${localEscapeHtml(memo.aiSummary)}</p></article>`
+    ? `<article class="ai-memo-panel"><span>AI enhancement</span><strong>${localEscapeHtml([memo.aiProvider, memo.aiModel].filter(Boolean).join(' · ') || 'Configured AI endpoint')}</strong><p>${localEscapeHtml(memo.aiSummary)}</p></article>`
     : '';
   const sections = Object.values(memo.sections || {}).map(section => `<article class="research-section"><strong>${localEscapeHtml(section.title)}</strong>${(section.bullets || []).map(bullet => `<p>${localEscapeHtml(bullet)}</p>`).join('')}</article>`).join('');
-  const evidenceRows = (memo.evidence || []).map(item => `<div class="evidence-row"><strong>${localEscapeHtml(item.claim)}</strong><span>${localEscapeHtml(item.evidence)}</span><small>${localEscapeHtml(item.sourceName)}${item.sourceDate ? ` · ${localEscapeHtml(item.sourceDate)}` : ''} · ${localEscapeHtml(item.confidence)} · ${localEscapeHtml(item.thesisImpact)}</small></div>`).join('');
+  const evidenceRows = (memo.evidence || []).map(item => `<div class="evidence-row"><strong>${localEscapeHtml(item.claim)}</strong><span>${localEscapeHtml(item.evidence)}</span><small>${localEscapeHtml(item.id || '')}${item.id ? ' · ' : ''}${localEscapeHtml(item.sourceName)}${item.sourceDate ? ` · ${localEscapeHtml(item.sourceDate)}` : ''} · ${localEscapeHtml(item.confidence)} · ${localEscapeHtml(item.thesisImpact)}${item.sourceEvidenceIds?.length ? ` · cites ${localEscapeHtml(item.sourceEvidenceIds.join(', '))}` : ''}</small></div>`).join('');
   const sourceErrors = (memo.sourceErrors || []).length
     ? `<div class="research-source-errors">${memo.sourceErrors.map(error => `<span>${localEscapeHtml(error)}</span>`).join('')}</div>`
     : '';
-  ui.researchMemoOutput.innerHTML = `${aiPanel}${sections}${sourceErrors}${evidenceRows ? `<div class="evidence-list">${evidenceRows}</div>` : ''}`;
+  const aiErrors = (memo.aiErrors || []).length
+    ? `<div class="research-source-errors">${memo.aiErrors.map(error => `<span>${localEscapeHtml(error)}</span>`).join('')}</div>`
+    : '';
+  ui.researchMemoOutput.innerHTML = `${aiPanel}${renderAiFeatureOutput(memo)}${sections}${sourceErrors}${aiErrors}${evidenceRows ? `<div class="evidence-list">${evidenceRows}</div>` : ''}`;
 }
 
 async function generateResearchMemo() {
@@ -1410,6 +1962,9 @@ async function generateResearchMemo() {
       symbol: selectedInstrument?.symbol || '',
       targetSymbol: selectedTargetInstrument?.symbol || '',
       thesis: ui.researchThesis?.value || '',
+      aiProvider: ui.aiProviderSelect?.value || '',
+      aiModel: ui.aiModelSelect?.value || '',
+      decisionContext: buildResearchDecisionContext(),
       positionCurrency: input.positionCurrency,
       taxCurrency: input.taxCurrency,
       currency: input.currencyCode
@@ -1422,6 +1977,67 @@ async function generateResearchMemo() {
   } finally {
     if (ui.generateResearchMemoBtn) ui.generateResearchMemoBtn.disabled = false;
   }
+}
+
+function applyAiScenarioCasesFromMemo(memo = researchMemos[0]) {
+  const cases = memo?.ai?.scenarioGenerator?.cases;
+  if (!Array.isArray(cases) || !cases.length) {
+    showToast('No AI scenarios to apply');
+    return;
+  }
+  decisionScenarioCases = cases.map((item, index) => ({
+    id: item.id || `ai-case-${index + 1}`,
+    name: item.name || `AI case ${index + 1}`,
+    probability: Number.isFinite(Number(item.probability)) ? Number(item.probability) : 0,
+    oldReturn: Number.isFinite(Number(item.oldReturn)) ? Number(item.oldReturn) : 0,
+    newReturn: Number.isFinite(Number(item.newReturn)) ? Number(item.newReturn) : 0,
+    oldDividendYield: Number.isFinite(Number(item.oldDividendYield)) ? Number(item.oldDividendYield) : 0,
+    newDividendYield: Number.isFinite(Number(item.newDividendYield)) ? Number(item.newDividendYield) : 0,
+    fxReturn: Number.isFinite(Number(item.fxReturn)) ? Number(item.fxReturn) : 0,
+    targetReachProbability: Number.isFinite(Number(item.targetReachProbability)) ? Number(item.targetReachProbability) : 0.5
+  }));
+  saveWorkspaceLocal(true);
+  if (typeof calculate === 'function') calculate();
+  activateDecisionTab('scenarios');
+  showToast('AI scenarios applied');
+}
+
+function addAiWatchRulesFromMemo(memo = researchMemos[0]) {
+  const suggestions = memo?.ai?.watchRuleGenerator?.suggestions;
+  if (!Array.isArray(suggestions) || !suggestions.length) {
+    showToast('No AI watch rules to add');
+    return;
+  }
+  const now = Date.now().toString(36);
+  const rules = suggestions
+    .filter(item => Number.isFinite(Number(item.threshold)))
+    .map((item, index) => ({
+      id: `ai-${now}-${index + 1}`,
+      type: item.type || 'scenario-margin',
+      threshold: Number(item.threshold),
+      direction: item.direction || 'above',
+      enabled: true,
+      channel: 'in-app',
+      label: item.label || item.type || 'AI watch rule',
+      metadata: { rationale: item.rationale || '', sourceEvidenceIds: item.sourceEvidenceIds || [] }
+    }));
+  if (!rules.length) {
+    showToast('No valid AI watch rules');
+    return;
+  }
+  localAlertRules = localAlertRules.concat(rules);
+  saveLocalAlerts();
+  saveWorkspaceLocal(true);
+  if (typeof calculate === 'function') calculate();
+  activateDecisionTab('alerts');
+  showToast('AI watch rules added');
+}
+
+function handleAiFeatureAction(event) {
+  const action = event.target?.closest('[data-ai-action]')?.dataset.aiAction;
+  if (!action) return;
+  if (action === 'apply-scenarios') applyAiScenarioCasesFromMemo();
+  if (action === 'add-watch-rules') addAiWatchRulesFromMemo();
 }
 
 function printDecisionReport() {
@@ -1545,6 +2161,52 @@ function setupInstallPrompt() {
   }
 }
 
+function showUpdatePrompt(worker) {
+  waitingServiceWorker = worker || waitingServiceWorker;
+  if (!ui.updatePrompt) return;
+  if (ui.updatePromptText) ui.updatePromptText.textContent = 'A new TaxSwitch version is ready.';
+  ui.updatePrompt.hidden = false;
+}
+
+function setupServiceWorkerUpdates() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('/sw.js').then((registration) => {
+    if (registration.waiting && navigator.serviceWorker.controller) {
+      showUpdatePrompt(registration.waiting);
+    }
+    registration.addEventListener('updatefound', () => {
+      const worker = registration.installing;
+      if (!worker) return;
+      worker.addEventListener('statechange', () => {
+        if (worker.state === 'installed' && navigator.serviceWorker.controller) {
+          showUpdatePrompt(worker);
+        }
+      });
+    });
+  }).catch(() => null);
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (serviceWorkerRefreshing) return;
+    serviceWorkerRefreshing = true;
+    window.location.reload();
+  });
+
+  if (ui.reloadUpdateBtn) {
+    ui.reloadUpdateBtn.addEventListener('click', () => {
+      if (!waitingServiceWorker) {
+        window.location.reload();
+        return;
+      }
+      waitingServiceWorker.postMessage({ type: 'SKIP_WAITING' });
+    });
+  }
+  if (ui.dismissUpdatePrompt) {
+    ui.dismissUpdatePrompt.addEventListener('click', () => {
+      if (ui.updatePrompt) ui.updatePrompt.hidden = true;
+    });
+  }
+}
+
 /* ── Hurdle mode ───────────────────────────────────────────────────── */
 function getHurdleMode() {
   const checked = document.querySelector('[name="hurdleMode"]:checked');
@@ -1556,7 +2218,7 @@ const LS_KEY = 'taxswitch_inputs';
 function saveToLocalStorage() {
   try {
     const data = {};
-    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchBuyPrice','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','targetAssetTypeFilter','targetAssetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis'].forEach(id => {
+    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchBuyPrice','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','targetAssetTypeFilter','targetAssetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis','aiProviderSelect','aiModelSelect'].forEach(id => {
       const el = document.getElementById(id);
       if (el && el.value) data[id] = el.value;
     });
@@ -1578,10 +2240,12 @@ function saveToLocalStorage() {
 
 function restoreFromLocalStorage() {
   try {
-    const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return false;
-    const data = JSON.parse(raw);
-    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchBuyPrice','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','targetAssetTypeFilter','targetAssetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis'].forEach(id => {
+	    const raw = localStorage.getItem(LS_KEY);
+	    if (!raw) return false;
+	    const data = JSON.parse(raw);
+	    pendingAiProviderSelection = data.aiProviderSelect || '';
+	    pendingAiModelSelection = data.aiModelSelect || '';
+	    ['shares','buyPrice','currentPrice','taxRate','transactionCost','rebuyPrice','expectedOldReturn','expectedNewReturn','switchBuyPrice','switchTargetPrice','switchBuyCost','switchHorizonYears','currencyCode','portfolioValue','targetWeight','positionCurrency','taxCurrency','fxRateBuy','fxRateNow','customSellShares','assetTypeFilter','assetCountryFilter','targetAssetTypeFilter','targetAssetCountryFilter','taxProfileMode','filingStatus','saverAllowanceRemaining','churchTaxRate','instrumentTaxClass','stockLossPot','otherLossPot','foreignTaxPaid','foreignTaxCreditable','priorTaxedVorabpauschale','distributionPolicy','fundDomicile','annualDistributionYield','withholdingTaxRate','totalExpenseRatio','trackingDifference','fundCurrencyExposure','indexMethodology','workspaceName','saleOrderSelect','targetSellPrice','targetReachProbability','freshCashAmount','cashReserve','maxTolerableLoss','timeHorizonYears','sectorExposure','countryExposure','currentVolatility','newVolatility','portfolioVolatility','correlationToPortfolio','researchThesis','aiProviderSelect','aiModelSelect'].forEach(id => {
       const el = document.getElementById(id);
       if (el && data[id]) el.value = data[id];
     });
@@ -1776,6 +2440,8 @@ document.addEventListener('click', (event) => {
 
 /* ── Wire up new event listeners ───────────────────────────────────── */
 function wireNewUI() {
+  ui.routeButtons.forEach(button => button.addEventListener('click', () => setAppRoute(button.dataset.appRoute)));
+  window.addEventListener('hashchange', () => setAppRoute(routeFromHash()));
   // Sell chips
   ui.sellChips.forEach(c => c.addEventListener('click', () => activateSellChip(c.dataset.sellPct)));
   // Custom sell shares input
@@ -1844,6 +2510,12 @@ function wireNewUI() {
     });
   }
   if (ui.generateResearchMemoBtn) ui.generateResearchMemoBtn.addEventListener('click', generateResearchMemo);
+  if (ui.aiProviderSelect) ui.aiProviderSelect.addEventListener('change', () => {
+    updateAiModelSelect();
+    saveToLocalStorage();
+  });
+  if (ui.aiModelSelect) ui.aiModelSelect.addEventListener('change', saveToLocalStorage);
+  if (ui.researchMemoOutput) ui.researchMemoOutput.addEventListener('click', handleAiFeatureAction);
   if (ui.printDecisionReportBtn) ui.printDecisionReportBtn.addEventListener('click', printDecisionReport);
   ui.workspaceTabs.forEach(tab => tab.addEventListener('click', () => activateWorkspaceTab(tab.dataset.workspaceTab)));
   if (ui.addPositionBtn) ui.addPositionBtn.addEventListener('click', addCurrentPosition);
@@ -1869,24 +2541,34 @@ function wireNewUI() {
     }
   });
   if (ui.authStatusBtn) ui.authStatusBtn.addEventListener('click', toggleAuthStatus);
+  if (ui.premiumAuthToken) {
+    ui.premiumAuthToken.addEventListener('input', () => {
+      setWorkspaceSyncStatus(ui.premiumAuthToken.value.trim()
+        ? 'Backend token ready. Sync will use token access.'
+        : 'Local only. Backend sync needs sign-in or an auth token.',
+        ui.premiumAuthToken.value.trim() ? 'synced' : 'local');
+    });
+  }
   if (ui.saveWorkspaceBtn) ui.saveWorkspaceBtn.addEventListener('click', saveWorkspaceLocal);
   if (ui.loadWorkspaceBtn) ui.loadWorkspaceBtn.addEventListener('click', loadWorkspaceLocal);
   if (ui.syncWorkspaceBtn) ui.syncWorkspaceBtn.addEventListener('click', syncWorkspaceBackend);
+  if (ui.depotSaveWorkspaceBtn) ui.depotSaveWorkspaceBtn.addEventListener('click', saveWorkspaceLocal);
+  if (ui.depotSyncWorkspaceBtn) ui.depotSyncWorkspaceBtn.addEventListener('click', syncWorkspaceBackend);
   if (ui.brokerImportFile) ui.brokerImportFile.addEventListener('change', parseBrokerImportFile);
+  if (ui.depotImportFile) ui.depotImportFile.addEventListener('change', parseBrokerImportFile);
   if (ui.commitImportBtn) ui.commitImportBtn.addEventListener('click', commitBrokerImport);
+  if (ui.depotCommitImportBtn) ui.depotCommitImportBtn.addEventListener('click', commitBrokerImport);
   if (ui.clearImportBtn) ui.clearImportBtn.addEventListener('click', clearBrokerImport);
-  if (window.netlifyIdentity?.on) {
-    window.netlifyIdentity.on('init', refreshAuthStatus);
-    window.netlifyIdentity.on('login', () => { refreshAuthStatus(); window.netlifyIdentity.close(); });
-    window.netlifyIdentity.on('logout', refreshAuthStatus);
-    window.netlifyIdentity.init();
-  }
+  if (ui.depotClearImportBtn) ui.depotClearImportBtn.addEventListener('click', clearBrokerImport);
   refreshAuthStatus();
   restoreLocalAlerts();
   renderPortfolioWorkspace();
   refreshEnhancedControls();
+  loadAiProviderCatalog();
+  setAppRoute(routeFromHash());
   // Install prompt
   setupInstallPrompt();
+  setupServiceWorkerUpdates();
   // API status check
   checkApiStatus();
 }
