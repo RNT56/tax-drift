@@ -63,6 +63,9 @@ The app works without API keys in anonymous/manual mode. Netlify Functions and p
 | `RESEND_API_KEY` | Optional | Email alerts | Not needed unless `email` alert delivery is enabled. In-app/local alerts work without it. |
 | `PREMIUM_API_TOKEN_HASHES` | Optional | Non-Identity API access/testing | Format is `sha256(token):userId`, comma-separated for multiple tokens. Netlify Identity is preferred for real users. |
 | `ALERT_SCHEDULER_SECRET` | Recommended | Manual alert scheduler runs | Scheduled Netlify runs work without a browser user. Direct HTTP calls must include this value as `x-alert-scheduler-secret` or a Bearer token when configured. |
+| `TESSERACT_BIN` | Optional | Local OCR fallback for scanned broker PDFs | Defaults to `tesseract`. The OCR path needs a Tesseract binary in the runtime, but no external OCR API key. |
+| `OCR_LANGUAGES` | Optional | OCR language preference | Defaults to `deu+eng` and automatically falls back to installed languages such as `eng`. |
+| `OCR_PSM` | Optional | Tesseract page segmentation mode | Defaults to `6`, which works best for statement-like blocks and tables. |
 
 Developer/test-only variables:
 
@@ -324,10 +327,12 @@ Enable Netlify Identity in the site dashboard before testing signed-in workspace
 
 - local and signed-in workspaces
 - encrypted backend workspace/import/report/alert storage
-- generic CSV, Trade Republic, Scalable Capital and IBKR import detection
-- backend text-PDF parsing for Trade Republic and Scalable Capital confirmations
-- FIFO lot accounting from imported transactions
-- dedicated Depot overview with broker/account grouping and multi-instrument import materialization
+- generic CSV import for transaction histories and Depot position snapshots
+- broker detection for Trade Republic, Scalable/Baader, IBKR, Consorsbank, comdirect/Commerzbank, DKB, ING, flatex, finanzen.net zero, smartbroker, S-Broker and maxblue/Deutsche Bank
+- backend text-PDF parsing for supported broker confirmations and textual Depot/portfolio snapshots
+- no-key local OCR fallback for scanned PDFs via PDF.js page rendering and Tesseract, with confidence diagnostics and review warnings
+- FIFO lot accounting from imported transactions, with snapshot imports materialized as Depot holdings when no transaction lots are available
+- dedicated Depot overview with broker/account grouping, multi-source import materialization and adapter status
 - German detailed tax breakdown
 - portfolio positions, targets, scenario comparison and deterministic optimizer
 - CSV/JSON/HTML audit reports

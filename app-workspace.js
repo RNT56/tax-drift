@@ -346,8 +346,43 @@
     };
   }
 
+  function normalizeImportPosition(position = {}) {
+    const isin = String(position.isin || '').trim().toUpperCase();
+    const symbol = String(position.symbol || '').trim().toUpperCase();
+    const broker = String(position.broker || position.source || 'generic').trim() || 'generic';
+    const accountId = String(position.accountId || position.account || '').trim();
+    const currency = String(position.currency || 'EUR').trim().toUpperCase().slice(0, 3) || 'EUR';
+    const shares = finiteNumber(position.shares ?? position.quantity, NaN);
+    const marketValue = finiteNumber(position.marketValue ?? position.value, NaN);
+    const costBasis = finiteNumber(position.costBasis, NaN);
+    const currentPrice = finiteNumber(position.currentPrice ?? position.price, Number.isFinite(marketValue) && shares > 0 ? Math.abs(marketValue) / shares : NaN);
+    const buyPrice = finiteNumber(position.buyPrice ?? position.averagePrice, Number.isFinite(costBasis) && shares > 0 ? Math.abs(costBasis) / shares : NaN);
+    return {
+      ...position,
+      id: String(position.id || '').trim(),
+      broker,
+      accountId,
+      symbol,
+      isin,
+      name: String(position.name || position.instrument || position.description || symbol || isin || 'Imported position').trim(),
+      currency,
+      shares,
+      buyPrice,
+      currentPrice,
+      currentFxRate: Math.max(finiteNumber(position.currentFxRate ?? position.fxRate, 1), 0) || 1,
+      marketValue,
+      costBasis,
+      snapshotDate: String(position.snapshotDate || position.date || '').trim()
+    };
+  }
+
   function importInstrumentKey(tx = {}) {
     const normalized = normalizeImportTransaction(tx);
+    return normalized.isin || normalized.symbol || normalized.name.toUpperCase();
+  }
+
+  function importPositionInstrumentKey(position = {}) {
+    const normalized = normalizeImportPosition(position);
     return normalized.isin || normalized.symbol || normalized.name.toUpperCase();
   }
 
@@ -452,6 +487,134 @@
       accounts,
       cashEvents,
       transactionCount: transactions.length,
+      warnings,
+      errors
+    };
+  }
+
+  function buildDepotPositionFromSnapshot(snapshot = {}, options = {}) {
+    const position = normalizeImportPosition(snapshot);
+    const instrumentKey = importPositionInstrumentKey(position);
+    const sourceKey = [position.broker, position.accountId || 'default', instrumentKey].join('|');
+    const shares = Math.max(finiteNumber(position.shares, 0), 0);
+    const currentPrice = Math.max(finiteNumber(position.currentPrice, 0), 0);
+    const buyPrice = Math.max(finiteNumber(position.buyPrice, 0), 0);
+    const costBasis = Number.isFinite(position.costBasis) ? Math.abs(position.costBasis) : shares * buyPrice;
+    const lot = shares > 0 && buyPrice > 0 ? [{
+      id: `${position.id || simpleHash(sourceKey)}-snapshot`,
+      acquiredAt: position.snapshotDate || '',
+      shares,
+      price: buyPrice,
+      fees: 0,
+      currency: position.currency,
+      meta: { source: 'position-snapshot' }
+    }] : [];
+    return {
+      id: `depot-${simpleHash(sourceKey)}`,
+      name: position.name || position.symbol || position.isin || 'Imported position',
+      symbol: position.symbol || '',
+      isin: position.isin || '',
+      broker: position.broker,
+      accountId: position.accountId,
+      source: 'import',
+      sourceKind: 'snapshot',
+      sourceKey,
+      currency: position.currency,
+      shares,
+      buyPrice,
+      currentPrice,
+      currentFxRate: position.currentFxRate,
+      value: shares * currentPrice * position.currentFxRate,
+      marketValue: position.marketValue,
+      costBasis,
+      targetWeight: Math.max(finiteNumber(snapshot.targetWeight, 0), 0),
+      expectedReturn: finiteNumber(snapshot.expectedReturn, 0),
+      minTradeValue: Math.max(finiteNumber(snapshot.minTradeValue, 0), 0),
+      lots: lot,
+      importedPositionCount: 1,
+      snapshotDate: position.snapshotDate,
+      importedAt: options.importedAt || new Date().toISOString()
+    };
+  }
+
+  function buildDepotFromImport(importData = {}, options = {}) {
+    const transactions = Array.isArray(importData) ? importData : (importData.transactions || []);
+    const snapshotRows = Array.isArray(importData.positions) ? importData.positions : (importData.snapshotPositions || []);
+    const transactionBuild = buildDepotFromTransactions(transactions, options);
+    const warnings = [...(transactionBuild.warnings || [])];
+    const errors = [...(transactionBuild.errors || [])];
+    const merged = new Map();
+    const keyForPosition = (position = {}) => [
+      position.broker || 'generic',
+      position.accountId || 'default',
+      String(position.isin || position.symbol || position.name || '').toUpperCase()
+    ].join('|');
+
+    (transactionBuild.positions || []).forEach((position) => {
+      merged.set(keyForPosition(position), position);
+    });
+
+    const snapshotPositions = snapshotRows.map((row) => buildDepotPositionFromSnapshot(row, options))
+      .filter(position => options.includeClosedPositions || position.shares > 0 || position.importedPositionCount > 0);
+
+    snapshotPositions.forEach((snapshot) => {
+      const key = keyForPosition(snapshot);
+      const existing = merged.get(key);
+      if (!existing) {
+        merged.set(key, snapshot);
+        return;
+      }
+      const shares = snapshot.shares || existing.shares || 0;
+      const currentPrice = snapshot.currentPrice || existing.currentPrice || 0;
+      const currentFxRate = snapshot.currentFxRate || existing.currentFxRate || 1;
+      const existingLotShares = (existing.lots || []).reduce((sum, lot) => sum + finiteNumber(lot.shares, 0), 0);
+      const keepExistingLots = existing.lots?.length && Math.abs(existingLotShares - shares) < 1e-8;
+      if (existing.lots?.length && !keepExistingLots) {
+        warnings.push(`${snapshot.name || snapshot.symbol || snapshot.isin}: Snapshot shares differ from transaction lots; using snapshot quantity for Depot holdings.`);
+      }
+      merged.set(key, {
+        ...existing,
+        ...snapshot,
+        id: existing.id || snapshot.id,
+        lots: keepExistingLots ? existing.lots : snapshot.lots,
+        importedTransactionCount: existing.importedTransactionCount || 0,
+        importedPositionCount: (existing.importedPositionCount || 0) + (snapshot.importedPositionCount || 1),
+        sourceKind: keepExistingLots ? 'transactions+snapshot' : 'snapshot',
+        shares,
+        buyPrice: snapshot.buyPrice || existing.buyPrice || 0,
+        currentPrice,
+        currentFxRate,
+        value: shares * currentPrice * currentFxRate,
+        costBasis: snapshot.costBasis || existing.costBasis || 0,
+        lastTradeDate: existing.lastTradeDate || '',
+        snapshotDate: snapshot.snapshotDate || existing.snapshotDate || '',
+        importedAt: options.importedAt || existing.importedAt || snapshot.importedAt
+      });
+    });
+
+    const positions = [...merged.values()].sort((a, b) => String(a.name || a.symbol || a.isin).localeCompare(String(b.name || b.symbol || b.isin)));
+    const accounts = positions.reduce((list, position) => {
+      const id = [position.broker || 'generic', position.accountId || 'default'].join('|');
+      if (!list.some(account => account.id === id)) {
+        list.push({
+          id,
+          broker: position.broker || 'generic',
+          accountId: position.accountId || '',
+          positionCount: positions.filter(item => (item.broker || 'generic') === (position.broker || 'generic') && (item.accountId || '') === (position.accountId || '')).length
+        });
+      }
+      return list;
+    }, []);
+
+    if (!positions.length && (transactions.length || snapshotRows.length)) warnings.push('No open imported positions were produced from the import set.');
+
+    return {
+      positions,
+      groups: transactionBuild.groups || [],
+      accounts,
+      cashEvents: transactionBuild.cashEvents || [],
+      transactionCount: transactions.length,
+      positionSnapshotCount: snapshotRows.length,
       warnings,
       errors
     };
@@ -575,6 +738,67 @@
     return `tx_${(hash >>> 0).toString(16)}`;
   }
 
+  const IMPORT_FIELD_ALIASES = {
+    type: ['type', 'transaction type', 'aktion', 'typ', 'side', 'umsatzart', 'buchungstext', 'geschäftsart', 'geschaeftsart', 'order typ', 'ordertype', 'art'],
+    quantity: ['quantity', 'shares', 'stück', 'stueck', 'anzahl', 'nominal', 'nominale', 'stueck nominal', 'stück nominal', 'anteile'],
+    price: ['price', 'kurs', 'ausführungskurs', 'ausfuehrungskurs', 'execution price', 'preis', 'abrechnungskurs'],
+    grossAmount: ['amount', 'gross amount', 'betrag', 'total', 'kurswert', 'orderwert', 'ordervolumen', 'gegenwert', 'bruttobetrag'],
+    fees: ['fees', 'fee', 'kosten', 'gebühr', 'gebuehr', 'provision', 'entgelt', 'spesen'],
+    taxes: ['tax', 'taxes', 'steuer', 'steuern', 'kapitalertragsteuer', 'abgeltungsteuer'],
+    currency: ['currency', 'währung', 'waehrung', 'whg', 'devisen', 'kurswährung', 'kurswaehrung'],
+    symbol: ['symbol', 'ticker', 'wertpapier', 'kurzbezeichnung'],
+    isin: ['isin', 'wkn isin', 'isin wkn'],
+    name: ['name', 'instrument', 'description', 'wertpapiername', 'bezeichnung', 'wertpapierbezeichnung', 'titel'],
+    tradeDate: ['trade date', 'date', 'datum', 'buchungstag', 'handelstag', 'ausführungstag', 'ausfuehrungstag', 'orderdatum'],
+    settlementDate: ['settlement date', 'valuta', 'wertstellung'],
+    accountId: ['account', 'account id', 'konto', 'kontonummer', 'depot', 'depotnummer', 'depot nr', 'depot-nr'],
+    snapshotDate: ['snapshot date', 'stand', 'stichtag', 'bewertungsdatum', 'datum'],
+    marketValue: ['market value', 'marktwert', 'wert', 'aktueller wert', 'positionswert', 'gesamtwert', 'depotwert'],
+    costBasis: ['cost basis', 'einstandswert', 'einstandswert gesamt', 'kaufwert', 'anschaffungswert', 'investiert', 'gesamt einstand'],
+    buyPrice: ['buy price', 'einstandskurs', 'kaufkurs', 'durchschnittskurs', 'durchschnittlicher kaufkurs', 'avg price', 'average price'],
+    currentPrice: ['current price', 'aktueller kurs', 'kurs aktuell', 'bewertungskurs', 'kurs', 'preis'],
+    profitLoss: ['profit loss', 'gewinn verlust', 'guv', 'performance', 'entwicklung']
+  };
+
+  function importAliases(field, mapping = {}) {
+    return [mapping[field], ...(IMPORT_FIELD_ALIASES[field] || [])].filter(Boolean);
+  }
+
+  function resolveImportFieldMapping(headerLabels, mapping = {}) {
+    const normalizedHeaders = headerLabels.map(normalizeHeader);
+    const findColumn = (names) => {
+      for (const name of names) {
+        const key = normalizeHeader(name);
+        const index = normalizedHeaders.indexOf(key);
+        if (index >= 0 && headerLabels[index]) return headerLabels[index];
+      }
+      return '';
+    };
+    return Object.fromEntries(Object.keys(IMPORT_FIELD_ALIASES).map(field => [field, findColumn(importAliases(field, mapping))]));
+  }
+
+  function normalizeImportType(value) {
+    const text = String(value || '').trim();
+    if (/sell|verkauf|veräußerung|veraeusserung/i.test(text)) return 'SELL';
+    if (/buy|kauf|sparplan kauf|zeichnung/i.test(text)) return 'BUY';
+    if (/dividend|dividende|ausschüttung|ausschuettung|ertrag/i.test(text)) return 'DIVIDEND';
+    if (/tax|steuer/i.test(text)) return 'TAX';
+    if (/fee|gebühr|gebuehr|kosten|entgelt/i.test(text)) return 'FEE';
+    if (/einlieferung|übertrag eingang|uebertrag eingang|transfer in/i.test(text)) return 'TRANSFER_IN';
+    if (/auslieferung|übertrag ausgang|uebertrag ausgang|transfer out/i.test(text)) return 'TRANSFER_OUT';
+    return text ? text.toUpperCase() : 'UNKNOWN';
+  }
+
+  function classifyImportRows(resolvedMapping, rows, pickValue, mapping = {}) {
+    const hasTransactionShape = !!resolvedMapping.type || rows.some(row => /buy|kauf|sell|verkauf|dividend|dividende|ausschüttung|steuer|gebühr|fee/i.test(pickValue(row, importAliases('type', mapping))));
+    const hasPositionShape = (!!resolvedMapping.marketValue || !!resolvedMapping.costBasis || !!resolvedMapping.currentPrice || !!resolvedMapping.buyPrice)
+      && !!resolvedMapping.quantity
+      && (!!resolvedMapping.symbol || !!resolvedMapping.isin || !!resolvedMapping.name);
+    if (hasPositionShape && !hasTransactionShape) return 'positions';
+    if (hasPositionShape && rows.some(row => !pickValue(row, importAliases('type', mapping)))) return 'mixed';
+    return 'transactions';
+  }
+
   function parseBrokerCsv(text, options = {}) {
     const rows = parseDelimitedText(text, options.delimiter);
     const detection = detectBrokerText(text, options.fileName || '');
@@ -592,55 +816,33 @@
       }
       return '';
     };
-    const resolvedMapping = {};
-    const findColumn = (names) => {
-      for (const name of names) {
-        const key = normalizeHeader(name);
-        const index = headers.indexOf(key);
-        if (index >= 0 && headerLabels[index]) return headerLabels[index];
-      }
-      return '';
-    };
     const mapping = options.mapping || {};
-    Object.entries({
-      type: [mapping.type, 'type', 'transaction type', 'aktion', 'typ', 'side'],
-      quantity: [mapping.quantity, 'quantity', 'shares', 'stück', 'stueck', 'anzahl'],
-      price: [mapping.price, 'price', 'kurs'],
-      grossAmount: [mapping.grossAmount, 'amount', 'gross amount', 'betrag', 'total'],
-      fees: [mapping.fees, 'fees', 'fee', 'kosten', 'gebühr'],
-      taxes: [mapping.taxes, 'tax', 'taxes', 'steuer'],
-      currency: [mapping.currency, 'currency', 'währung', 'waehrung'],
-      symbol: [mapping.symbol, 'symbol', 'ticker', 'wertpapier'],
-      isin: [mapping.isin, 'isin'],
-      name: [mapping.name, 'name', 'instrument', 'description'],
-      tradeDate: [mapping.tradeDate, 'trade date', 'date', 'datum'],
-      settlementDate: [mapping.settlementDate, 'settlement date', 'valuta']
-    }).forEach(([field, names]) => {
-      resolvedMapping[field] = findColumn(names);
-    });
-    const transactions = objects.map((row) => {
-      const typeRaw = pick(row, [mapping.type, 'type', 'transaction type', 'aktion', 'typ', 'side']);
-      const type = /sell|verkauf/i.test(typeRaw) ? 'SELL' : /buy|kauf/i.test(typeRaw) ? 'BUY' : String(typeRaw || 'UNKNOWN').toUpperCase();
-      const quantity = parseImportNumber(pick(row, [mapping.quantity, 'quantity', 'shares', 'stück', 'stueck', 'anzahl']));
-      const price = parseImportNumber(pick(row, [mapping.price, 'price', 'kurs']));
-      const grossAmount = parseImportNumber(pick(row, [mapping.grossAmount, 'amount', 'gross amount', 'betrag', 'total']));
+    const resolvedMapping = resolveImportFieldMapping(headerLabels, mapping);
+    const importKind = classifyImportRows(resolvedMapping, objects, pick, mapping);
+    const transactionRows = importKind === 'positions' ? [] : objects.filter(row => importKind !== 'mixed' || pick(row, importAliases('type', mapping)));
+    const positionRows = importKind === 'transactions' ? [] : objects.filter(row => importKind !== 'mixed' || !pick(row, importAliases('type', mapping)));
+    const transactions = transactionRows.map((row) => {
+      const type = normalizeImportType(pick(row, importAliases('type', mapping)));
+      const quantity = parseImportNumber(pick(row, importAliases('quantity', mapping)));
+      const price = parseImportNumber(pick(row, importAliases('price', mapping)));
+      const grossAmount = parseImportNumber(pick(row, importAliases('grossAmount', mapping)));
       const tx = {
         id: '',
         sourceRow: row.sourceRow,
         broker: options.broker || detection.broker,
-        accountId: options.accountId || '',
-        symbol: pick(row, [mapping.symbol, 'symbol', 'ticker', 'wertpapier']),
-        isin: pick(row, [mapping.isin, 'isin']),
-        name: pick(row, [mapping.name, 'name', 'instrument', 'description']),
-        tradeDate: pick(row, [mapping.tradeDate, 'trade date', 'date', 'datum']),
-        settlementDate: pick(row, [mapping.settlementDate, 'settlement date', 'valuta']),
+        accountId: options.accountId || pick(row, importAliases('accountId', mapping)),
+        symbol: pick(row, importAliases('symbol', mapping)),
+        isin: pick(row, importAliases('isin', mapping)),
+        name: pick(row, importAliases('name', mapping)),
+        tradeDate: pick(row, importAliases('tradeDate', mapping)),
+        settlementDate: pick(row, importAliases('settlementDate', mapping)),
         type,
         quantity,
         price,
         grossAmount,
-        fees: parseImportNumber(pick(row, [mapping.fees, 'fees', 'fee', 'kosten', 'gebühr'])),
-        taxes: parseImportNumber(pick(row, [mapping.taxes, 'tax', 'taxes', 'steuer'])),
-        currency: String(pick(row, [mapping.currency, 'currency', 'währung', 'waehrung']) || options.currency || 'EUR').toUpperCase().slice(0, 3),
+        fees: parseImportNumber(pick(row, importAliases('fees', mapping))),
+        taxes: parseImportNumber(pick(row, importAliases('taxes', mapping))),
+        currency: String(pick(row, importAliases('currency', mapping)) || options.currency || 'EUR').toUpperCase().slice(0, 3),
         warnings: [],
         errors: []
       };
@@ -650,25 +852,61 @@
       if (!Number.isFinite(tx.price) && !Number.isFinite(tx.grossAmount) && ['BUY', 'SELL'].includes(tx.type)) tx.warnings.push('Missing price or gross amount.');
       return tx;
     });
+    const positions = positionRows.map((row) => {
+      const shares = parseImportNumber(pick(row, importAliases('quantity', mapping)));
+      const currentPrice = parseImportNumber(pick(row, importAliases('currentPrice', mapping)));
+      const buyPrice = parseImportNumber(pick(row, importAliases('buyPrice', mapping)));
+      const marketValue = parseImportNumber(pick(row, importAliases('marketValue', mapping)));
+      const costBasis = parseImportNumber(pick(row, importAliases('costBasis', mapping)));
+      const position = {
+        id: '',
+        sourceRow: row.sourceRow,
+        broker: options.broker || detection.broker,
+        accountId: options.accountId || pick(row, importAliases('accountId', mapping)),
+        symbol: pick(row, importAliases('symbol', mapping)),
+        isin: pick(row, importAliases('isin', mapping)),
+        name: pick(row, importAliases('name', mapping)),
+        snapshotDate: pick(row, importAliases('snapshotDate', mapping)),
+        shares,
+        buyPrice: Number.isFinite(buyPrice) ? buyPrice : (Number.isFinite(costBasis) && shares > 0 ? Math.abs(costBasis) / shares : NaN),
+        currentPrice: Number.isFinite(currentPrice) ? currentPrice : (Number.isFinite(marketValue) && shares > 0 ? Math.abs(marketValue) / shares : NaN),
+        marketValue,
+        costBasis,
+        profitLoss: parseImportNumber(pick(row, importAliases('profitLoss', mapping))),
+        currency: String(pick(row, importAliases('currency', mapping)) || options.currency || 'EUR').toUpperCase().slice(0, 3),
+        warnings: [],
+        errors: []
+      };
+      position.id = simpleHash([position.broker, position.accountId, position.snapshotDate, position.symbol || position.isin || position.name, position.shares, position.currentPrice, position.costBasis, position.sourceRow].join('|'));
+      if (!position.symbol && !position.isin && !position.name) position.errors.push('Missing symbol/ISIN/name.');
+      if (!Number.isFinite(position.shares)) position.errors.push('Missing position quantity.');
+      if (!Number.isFinite(position.currentPrice) && !Number.isFinite(position.marketValue)) position.warnings.push('Missing current price or market value.');
+      if (!Number.isFinite(position.buyPrice) && !Number.isFinite(position.costBasis)) position.warnings.push('Missing cost basis.');
+      return position;
+    });
     const requiredFieldsMissing = [];
-    if (!resolvedMapping.type) requiredFieldsMissing.push('type');
+    if (importKind !== 'positions' && !resolvedMapping.type) requiredFieldsMissing.push('type');
     if (!resolvedMapping.quantity) requiredFieldsMissing.push('quantity');
-    if (!resolvedMapping.price && !resolvedMapping.grossAmount) requiredFieldsMissing.push('price or amount');
-    if (!resolvedMapping.symbol && !resolvedMapping.isin) requiredFieldsMissing.push('symbol or ISIN');
+    if (importKind !== 'positions' && !resolvedMapping.price && !resolvedMapping.grossAmount) requiredFieldsMissing.push('price or amount');
+    if (importKind !== 'transactions' && !resolvedMapping.currentPrice && !resolvedMapping.marketValue) requiredFieldsMissing.push('current price or market value');
+    if (!resolvedMapping.symbol && !resolvedMapping.isin && !resolvedMapping.name) requiredFieldsMissing.push('symbol, ISIN or name');
     const hasTransactionErrors = transactions.some(tx => (tx.errors || []).length);
+    const hasPositionErrors = positions.some(position => (position.errors || []).length);
     return {
       importId: `local_${Date.now().toString(36)}`,
       detectedBroker: options.broker || detection.broker,
       adapter: detection.adapter,
       confidence: options.broker ? 0.75 : detection.confidence,
       reason: detection.reason,
+      importKind,
       headers: headerLabels.filter(Boolean),
       fieldMapping: resolvedMapping,
       requiredFieldsMissing,
-      mappingRequired: requiredFieldsMissing.length > 0 || hasTransactionErrors || objects.length === 0,
+      mappingRequired: requiredFieldsMissing.length > 0 || hasTransactionErrors || hasPositionErrors || objects.length === 0,
       rowCount: objects.length,
       transactions,
-      symbols: [...new Set(transactions.map(tx => tx.isin || tx.symbol).filter(Boolean))],
+      positions,
+      symbols: [...new Set([...transactions.map(tx => tx.isin || tx.symbol), ...positions.map(position => position.isin || position.symbol)].filter(Boolean))],
       dateRange: {
         from: transactions.map(tx => tx.tradeDate).filter(Boolean).sort()[0] || null,
         to: transactions.map(tx => tx.tradeDate).filter(Boolean).sort().slice(-1)[0] || null
@@ -683,6 +921,18 @@
     if (/trade\s*republic|traderepublic/.test(sample)) return { broker: 'trade-republic', adapter: 'trade-republic-csv', confidence: 0.9, reason: 'Trade Republic marker found.' };
     if (/scalable\s*capital|baader\s*bank/.test(sample)) return { broker: 'scalable-capital', adapter: 'scalable-csv', confidence: 0.88, reason: 'Scalable Capital/Baader marker found.' };
     if (/interactive\s*brokers|ibkr|flex\s+query/.test(sample)) return { broker: 'interactive-brokers', adapter: 'ibkr-csv', confidence: 0.82, reason: 'Interactive Brokers marker found.' };
+    if (/consorsbank|bnp\s*paribas|cortal\s*consors/.test(sample)) return { broker: 'consorsbank', adapter: 'consorsbank-csv', confidence: 0.86, reason: 'Consorsbank/BNP Paribas marker found.' };
+    if (/comdirect|commerzbank/.test(sample)) return { broker: 'comdirect', adapter: 'comdirect-csv', confidence: 0.84, reason: 'comdirect/Commerzbank marker found.' };
+    if (/\bdkb\b|deutsche\s+kreditbank/.test(sample)) return { broker: 'dkb', adapter: 'dkb-csv', confidence: 0.84, reason: 'DKB marker found.' };
+    if (/\bing\b|ing[-\s]?diba/.test(sample)) return { broker: 'ing', adapter: 'ing-csv', confidence: 0.84, reason: 'ING marker found.' };
+    if (/flatex|finanzen\.net\s*zero|smartbroker|s-broker|sbroker|maxblue|deutsche\s+bank/.test(sample)) {
+      const broker = /finanzen\.net\s*zero/.test(sample) ? 'finanzen-net-zero'
+        : /smartbroker/.test(sample) ? 'smartbroker'
+        : /s-broker|sbroker/.test(sample) ? 's-broker'
+        : /maxblue|deutsche\s+bank/.test(sample) ? 'maxblue'
+        : 'flatex';
+      return { broker, adapter: `${broker}-csv`, confidence: 0.78, reason: 'German broker marker found.' };
+    }
     return { broker: 'generic-csv', adapter: 'generic-csv', confidence: 0.45, reason: 'Generic CSV fallback.' };
   }
 
@@ -774,8 +1024,10 @@
     optimizePortfolio,
     generateTaxReport,
     normalizeImportTransaction,
+    normalizeImportPosition,
     groupImportTransactions,
     buildDepotFromTransactions,
+    buildDepotFromImport,
     buildAlerts,
     evaluateAlertRules,
     serializeRowsCsv,

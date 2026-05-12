@@ -197,6 +197,7 @@ let deferredInstallPrompt = null;
 let localAlertRules = [];
 let activeWorkspaceId = null;
 let importedTransactions = [];
+let importedPositionSnapshots = [];
 let importedLots = [];
 let pendingImportPreview = null;
 let pendingImportText = '';
@@ -538,9 +539,11 @@ function buildWorkspaceSnapshot() {
         currencyExposure: input.positionCurrency
       },
       assumptions: lastDecisionResult?.assumptionQuality || {},
-      imports: importedTransactions.length ? [{ id: pendingImportPreview?.importId || 'local-import', transactions: importedTransactions }] : []
+      imports: importedTransactions.length || importedPositionSnapshots.length
+        ? [{ id: pendingImportPreview?.importId || 'local-import', transactions: importedTransactions, positions: importedPositionSnapshots }]
+        : []
     })
-    : { name: ui.workspaceName?.value || 'Local workspace', input, positions: portfolioPositions, scenarios: portfolioScenarios, imports: importedTransactions, lots: importedLots };
+    : { name: ui.workspaceName?.value || 'Local workspace', input, positions: portfolioPositions, scenarios: portfolioScenarios, imports: [{ transactions: importedTransactions, positions: importedPositionSnapshots }], lots: importedLots };
 }
 
 function saveWorkspaceLocal(silent = false) {
@@ -603,15 +606,24 @@ function applyWorkspaceSnapshot(workspace) {
   importedTransactions = Array.isArray(workspace?.imports)
     ? workspace.imports.flatMap(item => Array.isArray(item.transactions) ? item.transactions : (item.type ? [item] : []))
     : [];
+  importedPositionSnapshots = Array.isArray(workspace?.imports)
+    ? workspace.imports.flatMap(item => Array.isArray(item.positions) ? item.positions : (Array.isArray(item.snapshotPositions) ? item.snapshotPositions : []))
+    : [];
   importedLots = workspace?.positions?.find(position => position.lots?.length)?.lots || workspace?.lots || [];
-  if (importedTransactions.length && window.TaxWorkspace?.buildDepotFromTransactions) {
+  if ((importedTransactions.length || importedPositionSnapshots.length) && window.TaxWorkspace?.buildDepotFromImport) {
+    lastDepotBuild = window.TaxWorkspace.buildDepotFromImport({ transactions: importedTransactions, positions: importedPositionSnapshots }, { existingPositions: portfolioPositions });
+  } else if (importedTransactions.length && window.TaxWorkspace?.buildDepotFromTransactions) {
     lastDepotBuild = window.TaxWorkspace.buildDepotFromTransactions(importedTransactions, { existingPositions: portfolioPositions });
   }
   applyImportedLotsToInputs();
   renderImportPreview({
-    rowCount: importedTransactions.length,
+    rowCount: importedTransactions.length + importedPositionSnapshots.length,
     transactions: importedTransactions,
-    symbols: [...new Set(importedTransactions.map(tx => tx.isin || tx.symbol).filter(Boolean))],
+    positions: importedPositionSnapshots,
+    symbols: [...new Set([
+      ...importedTransactions.map(tx => tx.isin || tx.symbol),
+      ...importedPositionSnapshots.map(position => position.isin || position.symbol)
+    ].filter(Boolean))],
     warnings: importedLots.length ? [`Loaded ${importedLots.length} FIFO lots.`] : [],
     errors: []
   });
@@ -746,26 +758,39 @@ async function getPremiumAuthToken() {
 
 const IMPORT_MAPPING_FIELDS = [
   { key: 'tradeDate', label: 'Trade date', required: false },
+  { key: 'snapshotDate', label: 'Snapshot date', required: false },
   { key: 'type', label: 'Type', required: true },
   { key: 'quantity', label: 'Quantity', required: true },
   { key: 'price', label: 'Price', required: false },
+  { key: 'currentPrice', label: 'Current price', required: false },
+  { key: 'buyPrice', label: 'Buy price', required: false },
   { key: 'grossAmount', label: 'Gross amount', required: false },
+  { key: 'marketValue', label: 'Market value', required: false },
+  { key: 'costBasis', label: 'Cost basis', required: false },
+  { key: 'profitLoss', label: 'Profit/Loss', required: false },
   { key: 'fees', label: 'Fees', required: false },
   { key: 'currency', label: 'Currency', required: false },
+  { key: 'accountId', label: 'Account/Depot', required: false },
   { key: 'symbol', label: 'Symbol', required: false },
   { key: 'isin', label: 'ISIN', required: false },
   { key: 'name', label: 'Name', required: false }
 ];
 
 function hasImportBlockingErrors(preview) {
-  return (preview?.transactions || []).some(tx => (tx.errors || []).length);
+  return (preview?.transactions || []).some(tx => (tx.errors || []).length)
+    || (preview?.positions || []).some(position => (position.errors || []).length);
 }
 
 function collectImportTransactionMessages(preview) {
-  return (preview?.transactions || []).flatMap((tx) => [
+  const txMessages = (preview?.transactions || []).flatMap((tx) => [
     ...(tx.errors || []).map(message => `Row ${tx.sourceRow || '?'}: ${message}`),
     ...(tx.warnings || []).map(message => `Row ${tx.sourceRow || '?'}: ${message}`)
   ]);
+  const positionMessages = (preview?.positions || []).flatMap((position) => [
+    ...(position.errors || []).map(message => `Row ${position.sourceRow || '?'}: ${message}`),
+    ...(position.warnings || []).map(message => `Row ${position.sourceRow || '?'}: ${message}`)
+  ]);
+  return [...txMessages, ...positionMessages];
 }
 
 function updateImportFileLabels(file = null) {
@@ -776,14 +801,18 @@ function updateImportFileLabels(file = null) {
 
 function getImportPreviewStats(preview) {
   const transactions = preview?.transactions || [];
+  const positions = preview?.positions || [];
   const groups = window.TaxWorkspace?.groupImportTransactions
     ? window.TaxWorkspace.groupImportTransactions(transactions)
     : [];
   const accounts = new Set(groups.map(group => [group.broker, group.accountId || 'default'].join('|')));
+  positions.forEach(position => accounts.add([position.broker || preview?.detectedBroker || 'generic', position.accountId || 'default'].join('|')));
   return {
-    instruments: groups.length || (preview?.symbols || []).length,
+    instruments: groups.length + positions.length || (preview?.symbols || []).length,
     accounts: accounts.size,
-    transactions: transactions.length
+    transactions: transactions.length,
+    positions: positions.length,
+    rows: transactions.length + positions.length
   };
 }
 
@@ -882,14 +911,15 @@ function renderImportPreview(preview) {
     summary.className = 'import-preview__summary';
     summary.textContent = `${preview.detectedBroker || 'generic-csv'} · ${preview.adapter || 'adapter'} · ${Math.round((preview.confidence || 0) * 100)}% · ${preview.rowCount || 0} rows`;
     target.appendChild(summary);
-    if (stats.transactions) {
+    if (stats.transactions || stats.positions) {
       const chips = document.createElement('div');
       chips.className = 'import-preview__chips';
       [
-        `${stats.transactions} tx`,
+        stats.transactions ? `${stats.transactions} tx` : '',
+        stats.positions ? `${stats.positions} positions` : '',
         `${stats.instruments} instruments`,
         `${stats.accounts || 1} accounts`
-      ].forEach((label) => {
+      ].filter(Boolean).forEach((label) => {
         const chip = document.createElement('span');
         chip.textContent = label;
         chips.appendChild(chip);
@@ -911,7 +941,10 @@ function renderImportPreview(preview) {
     });
     const sample = document.createElement('div');
     sample.className = 'import-preview__sample';
-    sample.textContent = (preview.transactions || []).slice(0, 3).map(tx => `${tx.tradeDate || 'no date'} ${tx.type} ${tx.quantity || '—'} ${tx.symbol || tx.isin || '—'}`).join(' · ');
+    sample.textContent = [
+      ...(preview.transactions || []).slice(0, 3).map(tx => `${tx.tradeDate || 'no date'} ${tx.type} ${tx.quantity || '—'} ${tx.symbol || tx.isin || '—'}`),
+      ...(preview.positions || []).slice(0, 3).map(position => `${position.snapshotDate || 'snapshot'} ${position.shares || '—'} ${position.symbol || position.isin || position.name || '—'}`)
+    ].slice(0, 3).join(' · ');
     target.appendChild(sample);
     const mapping = renderImportMapping(preview);
     if (mapping) target.appendChild(mapping);
@@ -919,10 +952,13 @@ function renderImportPreview(preview) {
   const disabled = !!(preview.errors || []).length
     || hasImportBlockingErrors(preview)
     || preview.mappingRequired
-    || !(preview.transactions || []).length;
+    || !((preview.transactions || []).length || (preview.positions || []).length);
   [ui.commitImportBtn, ui.depotCommitImportBtn].forEach(button => { if (button) button.disabled = disabled; });
   const stats = getImportPreviewStats(preview);
-  if (ui.depotImportStatus) ui.depotImportStatus.textContent = stats.transactions ? `${stats.transactions} tx · ${stats.instruments} instruments` : `${preview.rowCount || 0} rows ready`;
+  if (ui.depotImportStatus) {
+    const counts = [stats.transactions ? `${stats.transactions} tx` : '', stats.positions ? `${stats.positions} positions` : ''].filter(Boolean).join(' · ');
+    ui.depotImportStatus.textContent = counts ? `${counts} · ${stats.instruments} instruments` : `${preview.rowCount || 0} rows ready`;
+  }
 }
 
 async function parseBrokerImportFile(event) {
@@ -1000,10 +1036,12 @@ function applyImportedLotsToInputs() {
   if (typeof setCurrency === 'function') setCurrency(currencyEl?.value || importedLots[0]?.currency || 'EUR');
 }
 
-function rebuildDepotPositionsFromTransactions(transactions, importedAt) {
-  const manualPositions = portfolioPositions.filter(position => position.source !== 'import' && !position.importedTransactionCount);
-  lastDepotBuild = window.TaxWorkspace?.buildDepotFromTransactions
-    ? window.TaxWorkspace.buildDepotFromTransactions(transactions, { existingPositions: portfolioPositions, importedAt })
+function rebuildDepotPositionsFromImport(transactions, positions, importedAt) {
+  const manualPositions = portfolioPositions.filter(position => position.source !== 'import' && !position.importedTransactionCount && !position.importedPositionCount);
+  lastDepotBuild = window.TaxWorkspace?.buildDepotFromImport
+    ? window.TaxWorkspace.buildDepotFromImport({ transactions, positions }, { existingPositions: portfolioPositions, importedAt })
+    : window.TaxWorkspace?.buildDepotFromTransactions
+      ? window.TaxWorkspace.buildDepotFromTransactions(transactions, { existingPositions: portfolioPositions, importedAt })
     : { positions: [], warnings: [], errors: ['Depot builder is unavailable.'] };
   portfolioPositions = [...manualPositions, ...(lastDepotBuild.positions || [])];
   importedLots = (lastDepotBuild.positions || []).find(position => position.lots?.length)?.lots || [];
@@ -1011,23 +1049,28 @@ function rebuildDepotPositionsFromTransactions(transactions, importedAt) {
 }
 
 function commitBrokerImport() {
-  if (!pendingImportPreview?.transactions?.length) return;
+  if (!pendingImportPreview?.transactions?.length && !pendingImportPreview?.positions?.length) return;
   if (pendingImportPreview.mappingRequired || hasImportBlockingErrors(pendingImportPreview) || (pendingImportPreview.errors || []).length) {
     renderImportPreview(pendingImportPreview);
     showToast('Resolve import mapping first');
     return;
   }
   const incoming = pendingImportPreview.transactions || [];
+  const incomingPositions = pendingImportPreview.positions || [];
   const existingIds = new Set(importedTransactions.map(tx => tx.id).filter(Boolean));
+  const existingPositionIds = new Set(importedPositionSnapshots.map(position => position.id).filter(Boolean));
   const deduped = incoming.filter(tx => !tx.id || !existingIds.has(tx.id));
+  const dedupedPositions = incomingPositions.filter(position => !position.id || !existingPositionIds.has(position.id));
   importedTransactions = importedTransactions.concat(deduped);
-  const result = rebuildDepotPositionsFromTransactions(importedTransactions, new Date().toISOString());
+  importedPositionSnapshots = importedPositionSnapshots.concat(dedupedPositions);
+  const result = rebuildDepotPositionsFromImport(importedTransactions, importedPositionSnapshots, new Date().toISOString());
   renderImportPreview({
     ...pendingImportPreview,
     warnings: [
       ...(pendingImportPreview.warnings || []),
-      `Committed ${deduped.length} transactions into ${(result.positions || []).length} Depot positions.`,
-      deduped.length < incoming.length ? `Skipped ${incoming.length - deduped.length} duplicate transactions.` : ''
+      `Committed ${deduped.length} transactions and ${dedupedPositions.length} position snapshots into ${(result.positions || []).length} Depot positions.`,
+      deduped.length < incoming.length ? `Skipped ${incoming.length - deduped.length} duplicate transactions.` : '',
+      dedupedPositions.length < incomingPositions.length ? `Skipped ${incomingPositions.length - dedupedPositions.length} duplicate position snapshots.` : ''
     ].filter(Boolean),
     errors: result.errors || []
   });
@@ -1044,9 +1087,10 @@ function clearBrokerImport() {
   pendingImportText = '';
   pendingImportMeta = null;
   importedTransactions = [];
+  importedPositionSnapshots = [];
   importedLots = [];
   lastDepotBuild = null;
-  portfolioPositions = portfolioPositions.filter(position => position.source !== 'import' && !position.importedTransactionCount);
+  portfolioPositions = portfolioPositions.filter(position => position.source !== 'import' && !position.importedTransactionCount && !position.importedPositionCount);
   renderImportPreview(null);
   if (ui.brokerImportFile) ui.brokerImportFile.value = '';
   if (ui.depotImportFile) ui.depotImportFile.value = '';
@@ -1098,7 +1142,9 @@ function activateWorkspaceTab(name) {
 function currentPositionFromInputs() {
   const input = typeof getInputs === 'function' ? getInputs() : {};
   if (!hasCoreInputs(input)) return null;
-  const importedIdentity = importedTransactions.find(tx => tx?.isin || tx?.symbol || tx?.name) || {};
+  const importedIdentity = importedTransactions.find(tx => tx?.isin || tx?.symbol || tx?.name)
+    || importedPositionSnapshots.find(position => position?.isin || position?.symbol || position?.name)
+    || {};
   const id = selectedInstrument?.isin || importedIdentity.isin || selectedInstrument?.symbol || importedIdentity.symbol || `manual-${Date.now().toString(36)}`;
   return {
     id: String(id).toLowerCase().replace(/[^a-z0-9_-]+/g, '-') || `position-${Date.now().toString(36)}`,
@@ -1162,10 +1208,12 @@ function renderPortfolioWorkspace() {
 }
 
 function getCurrentDepotBuild() {
-  if (window.TaxWorkspace?.buildDepotFromTransactions && importedTransactions.length) {
+  if (window.TaxWorkspace?.buildDepotFromImport && (importedTransactions.length || importedPositionSnapshots.length)) {
+    lastDepotBuild = window.TaxWorkspace.buildDepotFromImport({ transactions: importedTransactions, positions: importedPositionSnapshots }, { existingPositions: portfolioPositions });
+  } else if (window.TaxWorkspace?.buildDepotFromTransactions && importedTransactions.length) {
     lastDepotBuild = window.TaxWorkspace.buildDepotFromTransactions(importedTransactions, { existingPositions: portfolioPositions });
   }
-  return lastDepotBuild || { positions: portfolioPositions.filter(position => position.source === 'import' || position.importedTransactionCount), accounts: [], cashEvents: [], warnings: [], errors: [] };
+  return lastDepotBuild || { positions: portfolioPositions.filter(position => position.source === 'import' || position.importedTransactionCount || position.importedPositionCount), accounts: [], cashEvents: [], warnings: [], errors: [] };
 }
 
 function setDepotEmpty(node, text) {
@@ -1181,18 +1229,20 @@ function renderDepotOverview() {
   if (!ui.depotPage) return;
   const depot = getCurrentDepotBuild();
   const positions = portfolioPositions.length ? portfolioPositions : depot.positions || [];
-  const importedPositions = positions.filter(position => position.source === 'import' || position.importedTransactionCount);
+  const importedPositions = positions.filter(position => position.source === 'import' || position.importedTransactionCount || position.importedPositionCount);
   const baseCurrency = document.getElementById('currencyCode')?.value || 'EUR';
   const totalValue = positions.reduce((sum, position) => sum + (Number(position.shares) || 0) * (Number(position.currentPrice) || 0) * (Number(position.currentFxRate) || 1), 0);
   const importedValue = importedPositions.reduce((sum, position) => sum + (Number(position.shares) || 0) * (Number(position.currentPrice) || 0) * (Number(position.currentFxRate) || 1), 0);
   const transactionCount = importedTransactions.length || depot.transactionCount || 0;
+  const snapshotCount = importedPositionSnapshots.length || depot.positionSnapshotCount || 0;
   if (ui.depotSummary) {
     ui.depotSummary.innerHTML = '';
     [
       ['Positions', String(positions.length), positions.length ? 'Live' : 'Empty'],
       ['Imported value', formatCurrency(importedValue, baseCurrency), importedPositions.length ? 'Imported' : 'Waiting'],
       ['Total value', formatCurrency(totalValue, baseCurrency), positions.length ? 'Current' : 'No holdings'],
-      ['Transactions', String(transactionCount), transactionCount ? 'Parsed' : 'None']
+      ['Transactions', String(transactionCount), transactionCount ? 'Parsed' : 'None'],
+      ['Snapshots', String(snapshotCount), snapshotCount ? 'Parsed' : 'None']
     ].forEach(([label, value, meta]) => {
       const item = document.createElement('div');
       item.className = 'depot-summary__item';
@@ -1267,15 +1317,22 @@ function renderDepotOverview() {
     ui.depotSourceList.innerHTML = '';
     const sources = importedTransactions.reduce((map, tx) => {
       const key = [tx.broker || 'generic', tx.accountId || 'default'].join('|');
-      map.set(key, { broker: tx.broker || 'generic', accountId: tx.accountId || '', count: (map.get(key)?.count || 0) + 1 });
+      map.set(key, { broker: tx.broker || 'generic', accountId: tx.accountId || '', transactions: (map.get(key)?.transactions || 0) + 1, positions: map.get(key)?.positions || 0 });
       return map;
     }, new Map());
+    importedPositionSnapshots.forEach((position) => {
+      const key = [position.broker || 'generic', position.accountId || 'default'].join('|');
+      const existing = sources.get(key) || { broker: position.broker || 'generic', accountId: position.accountId || '', transactions: 0, positions: 0 };
+      sources.set(key, { ...existing, positions: existing.positions + 1 });
+    });
     if (!sources.size) {
       [
         ['Generic CSV', 'Ready'],
         ['Trade Republic', 'CSV/PDF'],
         ['Scalable/Baader', 'CSV/PDF'],
-        ['IBKR Flex', 'CSV']
+        ['IBKR Flex', 'CSV'],
+        ['Consorsbank', 'CSV/PDF'],
+        ['comdirect, DKB, ING, flatex', 'CSV/PDF markers']
       ].forEach(([name, state]) => {
         const item = document.createElement('div');
         item.className = 'depot-list__item depot-list__item--adapter';
@@ -1286,7 +1343,8 @@ function renderDepotOverview() {
     [...sources.values()].forEach((source) => {
       const item = document.createElement('div');
       item.className = 'depot-list__item';
-      item.innerHTML = `<strong>${localEscapeHtml(source.broker)}</strong><span class="depot-list__meta">${localEscapeHtml(source.accountId || 'default account')} · ${source.count} transactions</span>`;
+      const detail = [source.transactions ? `${source.transactions} transactions` : '', source.positions ? `${source.positions} snapshots` : ''].filter(Boolean).join(' · ');
+      item.innerHTML = `<strong>${localEscapeHtml(source.broker)}</strong><span class="depot-list__meta">${localEscapeHtml(source.accountId || 'default account')} · ${localEscapeHtml(detail || 'imported')}</span>`;
       ui.depotSourceList.appendChild(item);
     });
   }

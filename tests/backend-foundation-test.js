@@ -11,6 +11,7 @@ const snapshots = require('../netlify/functions/report-snapshot');
 const fxRate = require('../netlify/functions/get-fx-rate');
 const importCommit = require('../netlify/functions/import-commit');
 const ImportParser = require('../netlify/lib/import-parser');
+const OcrProviders = require('../netlify/lib/ocr-providers');
 
 function event(method, body, query = {}, headers = {}) {
   return {
@@ -128,6 +129,48 @@ function parse(response) {
   assert.equal(remappedCsv.mappingRequired, false);
   assert.equal(remappedCsv.transactions[0].isin, 'US0378331005');
 
+  const consorsDepotCsv = ImportParser.normalizeGenericCsv('Name;ISIN;WKN;Stück;Einstandskurs;Aktueller Kurs;Einstandswert;Marktwert;Währung;Depotnummer\nSAP SE;DE0007164600;716460;6;100,00;120,00;600,00;720,00;EUR;12345\n', {
+    fileName: 'consorsbank-depot.csv'
+  });
+  assert.equal(consorsDepotCsv.detectedBroker, 'consorsbank');
+  assert.equal(consorsDepotCsv.importKind, 'positions');
+  assert.equal(consorsDepotCsv.mappingRequired, false);
+  assert.equal(consorsDepotCsv.transactions.length, 0);
+  assert.equal(consorsDepotCsv.positions[0].shares, 6);
+  assert.equal(consorsDepotCsv.positions[0].currentPrice, 120);
+
+  const consorsDepotPdf = ImportParser.parseBrokerPdfText(`
+    Consorsbank BNP Paribas Depotübersicht
+    Stand 12.05.2026
+    SAP SE ISIN DE0007164600 Stück 6 Einstandskurs 100,00 Aktueller Kurs 120,00 Marktwert 720,00 EUR
+  `, { fileName: 'consorsbank-depot.pdf' });
+  assert.equal(consorsDepotPdf.importKind, 'positions');
+  assert.equal(consorsDepotPdf.positions[0].isin, 'DE0007164600');
+  assert.equal(consorsDepotPdf.positions[0].shares, 6);
+
+  const fakeOcrDocument = OcrProviders.buildDocumentModel([{
+    pageNumber: 1,
+    words: OcrProviders.parseTesseractTsv([
+      'level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext',
+      '5\t1\t1\t1\t1\t1\t10\t10\t100\t12\t94\tConsorsbank',
+      '5\t1\t1\t1\t1\t2\t120\t10\t120\t12\t94\tDepotübersicht',
+      '5\t1\t1\t1\t2\t1\t10\t40\t40\t12\t93\tSAP',
+      '5\t1\t1\t1\t2\t2\t55\t40\t20\t12\t92\tSE',
+      '5\t1\t1\t1\t2\t3\t90\t40\t90\t12\t96\tDE0007164600',
+      '5\t1\t1\t1\t2\t4\t190\t40\t35\t12\t91\tStück',
+      '5\t1\t1\t1\t2\t5\t230\t40\t20\t12\t91\t6',
+      '5\t1\t1\t1\t2\t6\t260\t40\t75\t12\t91\t120,00',
+      '5\t1\t1\t1\t2\t7\t345\t40\t75\t12\t91\t720,00',
+      '5\t1\t1\t1\t2\t8\t430\t40\t30\t12\t91\tEUR'
+    ].join('\n'), 1)
+  }], { provider: 'local-tesseract' });
+  const fakeOcrPreview = ImportParser.parseBrokerDocument(fakeOcrDocument, { fileName: 'consorsbank-scan.pdf', contentType: 'application/pdf' });
+  assert.equal(fakeOcrPreview.extractedBy, 'local-tesseract');
+  assert.equal(fakeOcrPreview.importKind, 'positions');
+  assert.equal(fakeOcrPreview.positions[0].isin, 'DE0007164600');
+  assert.equal(fakeOcrPreview.positions[0].shares, 6);
+  assert.ok(fakeOcrPreview.ocrConfidence > 0.9);
+
   const missingMappingCsv = ImportParser.normalizeGenericCsv('Name;Amount\nExample;10\n');
   assert.equal(missingMappingCsv.mappingRequired, true);
   assert.ok(missingMappingCsv.requiredFieldsMissing.includes('type'));
@@ -149,6 +192,19 @@ function parse(response) {
   assert.equal(sapPosition.shares, 6);
   assert.equal(msftPosition.shares, 3);
   assert.equal(committedWorkspace.positions.filter(position => position.source === 'import').length, 2);
+
+  response = await importCommit.route(event('POST', {
+    workspaceId: workspace.id,
+    importId: 'import-consors-positions',
+    positions: consorsDepotCsv.positions
+  }, {}, headers), {}, { env, workspaceStore });
+  assert.equal(response.statusCode, 200);
+  const committedPositionWorkspace = parse(response).workspace;
+  assert.equal(parse(response).committedPositions, 1);
+  const importedSapSnapshot = committedPositionWorkspace.positions.find(position => position.isin === 'DE0007164600');
+  assert.equal(importedSapSnapshot.shares, 6);
+  assert.equal(importedSapSnapshot.currentPrice, 120);
+  assert.ok(committedPositionWorkspace.imports.some(item => item.positions?.length === 1));
 
   const scalablePdf = ImportParser.parseBrokerPdfText(`
     Scalable Capital Baader Bank

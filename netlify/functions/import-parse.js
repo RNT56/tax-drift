@@ -16,7 +16,10 @@ async function route(event, context, options = {}) {
     mapping: body.mapping,
     broker: body.broker,
     accountId: body.accountId,
-    currency: body.currency
+    currency: body.currency,
+    ocrFallback: body.ocrFallback,
+    ocrMaxPages: body.ocrMaxPages,
+    ocrScale: body.ocrScale
   });
   const importId = `imp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
   if (content.length) {

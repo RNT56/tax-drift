@@ -44,6 +44,18 @@ const lots = [
 }
 
 {
+  const preview = Workspace.parseBrokerCsv('Name;ISIN;WKN;Stück;Einstandskurs;Aktueller Kurs;Einstandswert;Marktwert;Währung;Depotnummer\nSAP SE;DE0007164600;716460;6;100,00;120,00;600,00;720,00;EUR;12345\n', {
+    fileName: 'consorsbank-depot.csv'
+  });
+  assert.equal(preview.detectedBroker, 'consorsbank');
+  assert.equal(preview.importKind, 'positions');
+  assert.equal(preview.mappingRequired, false);
+  assert.equal(preview.transactions.length, 0);
+  assert.equal(preview.positions[0].shares, 6);
+  assert.equal(preview.positions[0].currentPrice, 120);
+}
+
+{
   const result = Workspace.optimizePortfolio([
     { id: 'sap', symbol: 'SAP', shares: 20, buyPrice: 80, currentPrice: 120, targetWeight: 40, lots: [{ id: 'sap-l1', shares: 20, price: 80 }] },
     { id: 'msft', symbol: 'MSFT', shares: 5, buyPrice: 100, currentPrice: 100, targetWeight: 60, lots: [{ id: 'msft-l1', shares: 5, price: 100 }] }
@@ -71,6 +83,23 @@ const lots = [
   assert.equal(depot.positions.find(position => position.symbol === 'SAP').shares, 6);
   assert.equal(depot.positions.find(position => position.symbol === 'MSFT').shares, 2);
   assert.equal(depot.cashEvents.length, 1);
+}
+
+{
+  const depot = Workspace.buildDepotFromImport({
+    transactions: [
+      { id: 'sap-buy-1', broker: 'trade-republic', accountId: 'main', type: 'BUY', tradeDate: '2020-01-01', symbol: 'SAP', isin: 'DE0007164600', quantity: 10, price: 80, currency: 'EUR' }
+    ],
+    positions: [
+      { id: 'sap-snapshot', broker: 'trade-republic', accountId: 'main', symbol: 'SAP', isin: 'DE0007164600', shares: 8, buyPrice: 80, currentPrice: 130, currency: 'EUR' },
+      { id: 'msft-snapshot', broker: 'interactive-brokers', accountId: 'usd', symbol: 'MSFT', isin: 'US5949181045', shares: 2, buyPrice: 200, currentPrice: 300, currency: 'USD' }
+    ]
+  });
+  assert.equal(depot.positions.length, 2);
+  assert.equal(depot.positionSnapshotCount, 2);
+  assert.equal(depot.positions.find(position => position.symbol === 'SAP').shares, 8);
+  assert.equal(depot.positions.find(position => position.symbol === 'SAP').lots.length, 1);
+  assert.equal(depot.positions.find(position => position.symbol === 'MSFT').sourceKind, 'snapshot');
 }
 
 console.log('Optimizer tests passed');
