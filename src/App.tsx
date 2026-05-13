@@ -94,6 +94,7 @@ const mobilePrimaryRouteIds = ["overview", "assets", "decision", "data"] as cons
 function routeFromPath(pathname: string): RouteId {
   const normalized = pathname.replace(/\/+$/, "") || "/";
   if (normalized === "/portfolio" || normalized === "/portfolio.html" || normalized === "/overview") return "overview";
+  if (normalized === "/brokers") return "brokers";
   return routes.find((route) => route.path === normalized)?.id || "overview";
 }
 

@@ -602,6 +602,7 @@ main {
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
+  min-width: 0;
   min-height: 210px;
   padding: 28px;
   color: #ffffff;
@@ -625,12 +626,14 @@ main {
   max-width: 780px;
   font-size: 2.4rem;
   line-height: 1.05;
+  overflow-wrap: anywhere;
 }
 
 .hero-band p:not(.eyebrow) {
   max-width: 850px;
   margin-top: 12px;
   color: #dce8df;
+  overflow-wrap: anywhere;
 }
 
 .hero-band .eyebrow {
@@ -640,14 +643,17 @@ main {
 .hero-status {
   display: grid;
   gap: 8px;
-  min-width: 210px;
+  width: min(280px, 100%);
+  min-width: min(210px, 100%);
 }
 
 .hero-status span {
+  min-width: 0;
   background: rgba(255, 255, 255, 0.13);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: 8px;
   padding: 11px 12px;
+  overflow-wrap: anywhere;
 }
 
 .metric-grid {
@@ -659,6 +665,7 @@ main {
 .metric-tile,
 .panel,
 .detail-panel {
+  min-width: 0;
   background: #ffffff;
   border: 1px solid #dfe4db;
   border-radius: 8px;
@@ -682,6 +689,7 @@ main {
 .metric-tile strong {
   font-size: 1.45rem;
   line-height: 1.1;
+  overflow-wrap: anywhere;
 }
 
 .metric-tile.positive {
@@ -713,10 +721,15 @@ main {
 
 .panel-heading {
   display: flex;
+  min-width: 0;
   justify-content: space-between;
   gap: 16px;
   align-items: start;
   margin-bottom: 16px;
+}
+
+.panel-heading > div {
+  min-width: 0;
 }
 
 .panel-heading h3,
@@ -728,6 +741,7 @@ main {
 .panel-heading h3,
 .detail-panel h3 {
   font-size: 1.1rem;
+  overflow-wrap: anywhere;
 }
 
 .action-stack {
@@ -747,6 +761,10 @@ main {
   border: 1px solid #e3e8df;
   border-radius: 8px;
   padding: 14px;
+}
+
+.action-row > div {
+  min-width: 0;
 }
 
 .rank {
@@ -815,6 +833,12 @@ main {
   border: 1px solid #e3e8df;
   border-radius: 8px;
   padding: 12px;
+}
+
+.issue-row > div,
+.lot-row > div,
+.mini-action > div {
+  min-width: 0;
 }
 
 .issue-row h4,
@@ -1087,6 +1111,8 @@ meter {
   background: #fffaf0;
   color: #735a13;
   padding: 11px 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .danger-notice {
@@ -1147,6 +1173,7 @@ meter {
 
 .connection-card,
 .alert-row {
+  min-width: 0;
   border: 1px solid #e3e8df;
   border-radius: 8px;
   padding: 14px;
@@ -1196,7 +1223,7 @@ meter {
 
 .chart-row {
   display: grid;
-  grid-template-columns: 86px minmax(120px, 1fr) 58px 110px;
+  grid-template-columns: minmax(74px, 0.65fr) minmax(96px, 1fr) minmax(48px, auto) minmax(92px, auto);
   align-items: center;
   gap: 12px;
   min-height: 36px;
@@ -1204,8 +1231,11 @@ meter {
 
 .chart-row span,
 .chart-row small {
+  min-width: 0;
   color: #65736a;
   font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chart-track {
@@ -1277,6 +1307,7 @@ meter {
 }
 
 .asset-result {
+  min-width: 0;
   width: 100%;
   border: 1px solid #e3e8df;
   border-radius: 8px;
@@ -1301,7 +1332,9 @@ meter {
 
 .asset-result span,
 .asset-result small {
+  min-width: 0;
   color: #65736a;
+  overflow-wrap: anywhere;
 }
 
 .selected-asset-strip {
@@ -1380,6 +1413,14 @@ meter {
   font-weight: 700;
 }
 
+.checkbox-row input[type="checkbox"] {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  accent-color: #102017;
+}
+
 .static-row {
   cursor: default;
 }
@@ -1450,12 +1491,14 @@ meter {
 }
 
 .research-form {
+  min-width: 0;
   display: grid;
   gap: 14px;
 }
 
 .research-form label,
 .copilot-form {
+  min-width: 0;
   display: grid;
   gap: 7px;
 }
@@ -1485,6 +1528,7 @@ meter {
 }
 
 .field-grid {
+  min-width: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
@@ -1505,6 +1549,7 @@ meter {
 }
 
 .saved-run {
+  min-width: 0;
   width: 100%;
   border: 1px solid #e3e8df;
   border-radius: 8px;
@@ -1527,8 +1572,10 @@ meter {
 .source-status-row small,
 .evidence-meta,
 .message-row small {
+  min-width: 0;
   color: #65736a;
   font-size: 0.82rem;
+  overflow-wrap: anywhere;
 }
 
 .research-tabs {
@@ -1575,6 +1622,7 @@ meter {
 .evidence-card,
 .event-row,
 .message-row {
+  min-width: 0;
   border: 1px solid #e3e8df;
   border-radius: 8px;
   background: #ffffff;
@@ -1605,6 +1653,7 @@ meter {
 .message-row p {
   margin: 0;
   color: #3f4c44;
+  overflow-wrap: anywhere;
 }
 
 .evidence-card-header,
@@ -1957,6 +2006,8 @@ button:disabled {
   .hero-band {
     display: grid;
     align-items: start;
+    gap: 18px;
+    min-height: auto;
   }
 
   .hero-actions {
@@ -1986,7 +2037,18 @@ button:disabled {
   }
 
   .hero-band h2 {
-    font-size: 1.9rem;
+    font-size: 1.65rem;
+    line-height: 1.08;
+  }
+
+  .hero-band p:not(.eyebrow) {
+    font-size: 0.9rem;
+    line-height: 1.35;
+  }
+
+  .hero-status {
+    width: 100%;
+    min-width: 0;
   }
 
   .action-row {
@@ -2020,6 +2082,48 @@ button:disabled {
   .coverage-grid,
   .event-row {
     grid-template-columns: 1fr;
+  }
+
+  .panel,
+  .detail-panel {
+    padding: 16px;
+  }
+
+  .panel-heading {
+    gap: 10px;
+  }
+
+  .notice-bar {
+    padding: 10px 12px;
+    font-size: 0.9rem;
+  }
+
+  .chart-row {
+    grid-template-columns: minmax(0, 1fr) minmax(52px, auto);
+    gap: 8px;
+  }
+
+  .chart-row .chart-track {
+    grid-column: 1 / -1;
+  }
+
+  .chart-row small {
+    text-align: right;
+  }
+
+  .alert-row,
+  .target-row,
+  .report-grid article {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .inline-actions,
+  .static-row button,
+  .target-row button,
+  .report-grid button {
+    width: 100%;
+    justify-content: center;
   }
 
   .event-score {
