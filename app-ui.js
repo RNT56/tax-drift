@@ -172,6 +172,15 @@ const ui = {
   decisionReportOutput: document.getElementById('decisionReportOutput'),
   shareToast: document.getElementById('shareToast'),
   shareToastMsg: document.getElementById('shareToastMsg'),
+  authDialog: document.getElementById('authDialog'),
+  authForm: document.getElementById('authForm'),
+  authDialogTitle: document.getElementById('authDialogTitle'),
+  authEmail: document.getElementById('authEmail'),
+  authPassword: document.getElementById('authPassword'),
+  authMessage: document.getElementById('authMessage'),
+  authSubmitBtn: document.getElementById('authSubmitBtn'),
+  authModeButtons: [...document.querySelectorAll('[data-auth-mode]')],
+  authCloseButtons: [...document.querySelectorAll('[data-auth-close]')],
   installAppBtn: document.getElementById('installAppBtn'),
   installPrompt: document.getElementById('installPrompt'),
   installPromptText: document.getElementById('installPromptText'),
@@ -216,8 +225,10 @@ let researchMemos = [];
 let aiProviderCatalog = [];
 let pendingAiProviderSelection = '';
 let pendingAiModelSelection = '';
-let identityLoadPromise = null;
-let identityInitialized = false;
+const AUTH_SESSION_KEY = 'taxswitch_supabase_session';
+let authConfigPromise = null;
+let authMode = 'signin';
+let authSession = null;
 let waitingServiceWorker = null;
 let serviceWorkerRefreshing = false;
 
@@ -693,67 +704,179 @@ async function syncWorkspaceBackend() {
 
 function refreshAuthStatus() {
   if (!ui.authStatusBtn) return;
-  const user = window.netlifyIdentity?.currentUser?.();
-  ui.authStatusBtn.textContent = user ? 'Signed in' : 'Sign in';
-  ui.authStatusBtn.classList.toggle('is-active', !!user);
-  if (user) setWorkspaceSyncStatus('Signed in. Backend sync is available.', 'synced');
+  const userEmail = authSession?.user?.email || authSession?.email || '';
+  ui.authStatusBtn.textContent = userEmail ? 'Signed in' : 'Sign in';
+  ui.authStatusBtn.title = userEmail || 'Sign in';
+  ui.authStatusBtn.classList.toggle('is-active', Boolean(userEmail));
+  if (userEmail) setWorkspaceSyncStatus(`Signed in as ${userEmail}. Backend sync is available.`, 'synced');
 }
 
-function loadNetlifyIdentityWidget() {
-  if (window.netlifyIdentity) return Promise.resolve(window.netlifyIdentity);
-  if (identityLoadPromise) return identityLoadPromise;
-  identityLoadPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    script.src = 'https://identity.netlify.com/v1/netlify-identity-widget.js';
-    script.async = true;
-    script.onload = () => window.netlifyIdentity ? resolve(window.netlifyIdentity) : reject(new Error('Netlify Identity did not initialize.'));
-    script.onerror = () => reject(new Error('Netlify Identity is unavailable.'));
-    document.head.appendChild(script);
-  });
-  return identityLoadPromise;
+function loadStoredAuthSession() {
+  try {
+    const raw = localStorage.getItem(AUTH_SESSION_KEY);
+    authSession = raw ? JSON.parse(raw) : null;
+  } catch {
+    authSession = null;
+  }
+  return authSession;
 }
 
-async function initializeNetlifyIdentity() {
-  const identity = await loadNetlifyIdentityWidget();
-  if (!identityInitialized && identity?.on) {
-    identity.on('init', refreshAuthStatus);
-    identity.on('login', () => { refreshAuthStatus(); identity.close(); });
-    identity.on('logout', () => {
-      refreshAuthStatus();
-      setWorkspaceSyncStatus('Signed out. Workspace changes stay local until synced again.', 'local');
-    });
-    identity.init();
-    identityInitialized = true;
+function storeAuthSession(session) {
+  authSession = session || null;
+  try {
+    if (authSession) localStorage.setItem(AUTH_SESSION_KEY, JSON.stringify(authSession));
+    else localStorage.removeItem(AUTH_SESSION_KEY);
+  } catch {
+    /* ignore storage failures */
   }
   refreshAuthStatus();
-  return identity;
+}
+
+async function getAuthConfig() {
+  if (authConfigPromise) return authConfigPromise;
+  authConfigPromise = fetch('/.netlify/functions/auth-config', {
+    headers: { Accept: 'application/json' }
+  })
+    .then(async response => {
+      const payload = await response.json().catch(() => ({}));
+      const data = payload.data || payload;
+      if (!response.ok || !data.configured || !data.supabaseUrl || !data.publishableKey) {
+        throw new Error('Supabase auth is not configured for this deployment.');
+      }
+      return data;
+    });
+  return authConfigPromise;
+}
+
+async function supabaseAuthRequest(path, body, options = {}) {
+  const config = await getAuthConfig();
+  const response = await fetch(`${config.supabaseUrl}/auth/v1/${path}`, {
+    method: 'POST',
+    headers: {
+      apikey: config.publishableKey,
+      'content-type': 'application/json',
+      ...(options.accessToken ? { authorization: `Bearer ${options.accessToken}` } : {})
+    },
+    body: JSON.stringify(body || {})
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.msg || payload.message || payload.error_description || payload.error || 'Authentication failed.');
+  }
+  return payload;
+}
+
+function setAuthMode(nextMode) {
+  authMode = nextMode === 'signup' ? 'signup' : 'signin';
+  ui.authModeButtons.forEach(button => button.classList.toggle('is-active', button.dataset.authMode === authMode));
+  if (ui.authDialogTitle) ui.authDialogTitle.textContent = authMode === 'signup' ? 'Create account' : 'Sign in';
+  if (ui.authSubmitBtn) ui.authSubmitBtn.textContent = authMode === 'signup' ? 'Create account' : 'Sign in';
+  if (ui.authPassword) ui.authPassword.autocomplete = authMode === 'signup' ? 'new-password' : 'current-password';
+  if (ui.authMessage) ui.authMessage.textContent = '';
+}
+
+function openAuthDialog(mode = 'signin') {
+  setAuthMode(mode);
+  if (!ui.authDialog) return;
+  ui.authDialog.hidden = false;
+  document.body.classList.add('auth-dialog-open');
+  requestAnimationFrame(() => ui.authEmail?.focus());
+}
+
+function closeAuthDialog() {
+  if (!ui.authDialog) return;
+  ui.authDialog.hidden = true;
+  document.body.classList.remove('auth-dialog-open');
+  if (ui.authMessage) ui.authMessage.textContent = '';
+}
+
+async function submitAuthForm(event) {
+  event.preventDefault();
+  const email = ui.authEmail?.value.trim();
+  const password = ui.authPassword?.value || '';
+  if (!email || !password) return;
+  if (ui.authSubmitBtn) ui.authSubmitBtn.disabled = true;
+  if (ui.authMessage) ui.authMessage.textContent = authMode === 'signup' ? 'Creating account...' : 'Signing in...';
+  try {
+    const payload = authMode === 'signup'
+      ? await supabaseAuthRequest('signup', { email, password })
+      : await supabaseAuthRequest('token?grant_type=password', { email, password });
+    if (!payload.access_token) {
+      storeAuthSession(null);
+      if (ui.authMessage) ui.authMessage.textContent = 'Check your email to confirm the account, then sign in.';
+      showToast('Check email to confirm account');
+      return;
+    }
+    storeAuthSession({
+      access_token: payload.access_token,
+      refresh_token: payload.refresh_token,
+      expires_at: Math.floor(Date.now() / 1000) + Number(payload.expires_in || 3600),
+      user: payload.user || { email }
+    });
+    if (ui.authPassword) ui.authPassword.value = '';
+    closeAuthDialog();
+    showToast(authMode === 'signup' ? 'Account ready' : 'Signed in');
+  } catch (error) {
+    if (ui.authMessage) ui.authMessage.textContent = error.message || 'Authentication failed.';
+    setWorkspaceSyncStatus(error.message || 'Authentication failed.', 'error');
+  } finally {
+    if (ui.authSubmitBtn) ui.authSubmitBtn.disabled = false;
+  }
+}
+
+async function signOutSupabase() {
+  const token = authSession?.access_token;
+  if (token) {
+    try {
+      await supabaseAuthRequest('logout', {}, { accessToken: token });
+    } catch {
+      /* local sign-out still clears the session */
+    }
+  }
+  storeAuthSession(null);
+  setWorkspaceSyncStatus('Signed out. Workspace changes stay local until synced again.', 'local');
+  showToast('Signed out');
 }
 
 async function toggleAuthStatus() {
-  try {
-    const identity = await initializeNetlifyIdentity();
-    if (identity.currentUser()) {
-      identity.logout();
-      return;
-    }
-    identity.open('login');
-  } catch (error) {
-    setWorkspaceSyncStatus(error.message || 'Netlify Identity is unavailable.', 'error');
-    showToast('Netlify Identity is unavailable');
+  loadStoredAuthSession();
+  if (authSession?.access_token) {
+    await signOutSupabase();
     return;
+  }
+  openAuthDialog('signin');
+}
+
+async function refreshSupabaseSession(session) {
+  if (!session?.refresh_token) return '';
+  try {
+    const payload = await supabaseAuthRequest('token?grant_type=refresh_token', {
+      refresh_token: session.refresh_token
+    });
+    if (!payload.access_token) return '';
+    storeAuthSession({
+      access_token: payload.access_token,
+      refresh_token: payload.refresh_token || session.refresh_token,
+      expires_at: Math.floor(Date.now() / 1000) + Number(payload.expires_in || 3600),
+      user: payload.user || session.user
+    });
+    return payload.access_token;
+  } catch {
+    storeAuthSession(null);
+    return '';
   }
 }
 
 async function getPremiumAuthToken() {
   const manual = ui.premiumAuthToken?.value.trim();
   if (manual) return manual;
-  const user = window.netlifyIdentity?.currentUser?.();
-  if (!user?.jwt) return '';
-  try {
-    return await user.jwt();
-  } catch {
-    return '';
+  const session = authSession || loadStoredAuthSession();
+  if (!session?.access_token) return '';
+  const expiresAt = Number(session.expires_at || 0);
+  if (expiresAt && expiresAt - Math.floor(Date.now() / 1000) < 90) {
+    return refreshSupabaseSession(session);
   }
+  return session.access_token;
 }
 
 const IMPORT_MAPPING_FIELDS = [
@@ -850,7 +973,7 @@ function renderImportMapping(preview) {
   const hint = document.createElement('span');
   hint.textContent = preview.requiredFieldsMissing?.length
     ? `Missing: ${preview.requiredFieldsMissing.join(', ')}`
-    : 'Detected columns can be adjusted before using FIFO lots.';
+    : 'Detected columns can be adjusted before committing to Depot.';
   heading.append(title, hint);
   form.appendChild(heading);
 
@@ -1235,17 +1358,19 @@ function renderDepotOverview() {
   const importedValue = importedPositions.reduce((sum, position) => sum + (Number(position.shares) || 0) * (Number(position.currentPrice) || 0) * (Number(position.currentFxRate) || 1), 0);
   const transactionCount = importedTransactions.length || depot.transactionCount || 0;
   const snapshotCount = importedPositionSnapshots.length || depot.positionSnapshotCount || 0;
+  const accounts = depot.accounts || [];
+  const cashEvents = depot.cashEvents || [];
   if (ui.depotSummary) {
     ui.depotSummary.innerHTML = '';
     [
-      ['Positions', String(positions.length), positions.length ? 'Live' : 'Empty'],
-      ['Imported value', formatCurrency(importedValue, baseCurrency), importedPositions.length ? 'Imported' : 'Waiting'],
-      ['Total value', formatCurrency(totalValue, baseCurrency), positions.length ? 'Current' : 'No holdings'],
-      ['Transactions', String(transactionCount), transactionCount ? 'Parsed' : 'None'],
-      ['Snapshots', String(snapshotCount), snapshotCount ? 'Parsed' : 'None']
-    ].forEach(([label, value, meta]) => {
+      ['Total value', formatCurrency(totalValue, baseCurrency), positions.length ? 'Current holdings' : 'No holdings', 'value'],
+      ['Imported value', formatCurrency(importedValue, baseCurrency), importedPositions.length ? `${importedPositions.length} imported` : 'Awaiting import', 'imported'],
+      ['Positions', String(positions.length), positions.length ? 'Ready for decisions' : 'Empty Depot', 'positions'],
+      ['Import rows', String(transactionCount + snapshotCount), [transactionCount ? `${transactionCount} tx` : '', snapshotCount ? `${snapshotCount} snapshots` : ''].filter(Boolean).join(' · ') || 'None parsed', 'rows'],
+      ['Accounts', String(accounts.length), cashEvents.length ? `${cashEvents.length} cash events` : 'Broker grouping', 'accounts']
+    ].forEach(([label, value, meta, kind]) => {
       const item = document.createElement('div');
-      item.className = 'depot-summary__item';
+      item.className = `depot-summary__item depot-summary__item--${kind}`;
       item.innerHTML = `<span>${localEscapeHtml(label)}</span><strong>${localEscapeHtml(value)}</strong><small>${localEscapeHtml(meta)}</small>`;
       ui.depotSummary.appendChild(item);
     });
@@ -1271,24 +1396,33 @@ function renderDepotOverview() {
         const value = shares * price * fx;
         const row = document.createElement('div');
         row.className = 'depot-row';
-        [
-          `${position.symbol || position.name || position.isin || 'Position'}${position.isin ? ` · ${position.isin}` : ''}`,
-          position.broker || 'Manual',
-          formatShares(shares),
-          formatCurrency(Number(position.buyPrice || 0) * shares, position.currency || baseCurrency),
-          formatCurrency(price, position.currency || baseCurrency),
-          formatCurrency(value, baseCurrency)
-        ].forEach((text, index) => {
-          const cell = document.createElement(index === 0 ? 'strong' : 'span');
-          cell.dataset.label = ['Instrument', 'Broker', 'Shares', 'Cost', 'Price', 'Value'][index];
-          cell.textContent = text;
+        const labels = ['Instrument', 'Broker', 'Shares', 'Cost', 'Price', 'Value'];
+        const symbol = position.symbol || position.name || position.isin || 'Position';
+        const instrumentMeta = [position.isin, position.name && position.name !== symbol ? position.name : '', position.sourceKind === 'snapshot' ? 'Snapshot' : 'Lots'].filter(Boolean).join(' · ');
+        const cells = [
+          {
+            tag: 'strong',
+            className: 'depot-instrument',
+            html: `<span>${localEscapeHtml(symbol)}</span><small>${localEscapeHtml(instrumentMeta || position.broker || 'Manual entry')}</small>`
+          },
+          { className: 'depot-cell depot-cell--broker', text: position.broker || 'Manual' },
+          { className: 'depot-cell depot-cell--numeric', text: formatShares(shares) },
+          { className: 'depot-cell depot-cell--numeric', text: formatCurrency(Number(position.buyPrice || 0) * shares, position.currency || baseCurrency) },
+          { className: 'depot-cell depot-cell--numeric', text: formatCurrency(price, position.currency || baseCurrency) },
+          { className: 'depot-cell depot-cell--numeric depot-cell--value', text: formatCurrency(value, baseCurrency) }
+        ];
+        cells.forEach((definition, index) => {
+          const cell = document.createElement(definition.tag || 'span');
+          cell.className = definition.className || '';
+          cell.dataset.label = labels[index];
+          if (definition.html) cell.innerHTML = definition.html;
+          else cell.textContent = definition.text;
           row.appendChild(cell);
         });
         ui.depotPositionsTable.appendChild(row);
       });
     }
   }
-  const accounts = depot.accounts || [];
   if (ui.depotAccountCount) ui.depotAccountCount.textContent = `${accounts.length} accounts`;
   if (ui.depotAccountList) {
     ui.depotAccountList.innerHTML = '';
@@ -1300,7 +1434,6 @@ function renderDepotOverview() {
       ui.depotAccountList.appendChild(item);
     });
   }
-  const cashEvents = depot.cashEvents || [];
   if (ui.depotCashEventCount) ui.depotCashEventCount.textContent = `${cashEvents.length} events`;
   if (ui.depotCashEventList) {
     ui.depotCashEventList.innerHTML = '';
@@ -1327,16 +1460,16 @@ function renderDepotOverview() {
     });
     if (!sources.size) {
       [
-        ['Generic CSV', 'Ready'],
-        ['Trade Republic', 'CSV/PDF'],
-        ['Scalable/Baader', 'CSV/PDF'],
-        ['IBKR Flex', 'CSV'],
-        ['Consorsbank', 'CSV/PDF'],
-        ['comdirect, DKB, ING, flatex', 'CSV/PDF markers']
-      ].forEach(([name, state]) => {
+        ['Generic CSV', 'Ready', 'Header mapping for transactions and snapshots'],
+        ['Trade Republic', 'CSV/PDF', 'Order history and confirmations'],
+        ['Scalable/Baader', 'CSV/PDF', 'Broker activity exports'],
+        ['IBKR Flex', 'CSV', 'Flex query transaction rows'],
+        ['Consorsbank', 'CSV/PDF', 'Depot snapshots and textual PDFs'],
+        ['comdirect, DKB, ING, flatex', 'Markers', 'Broker-specific CSV/PDF detection']
+      ].forEach(([name, state, detail]) => {
         const item = document.createElement('div');
         item.className = 'depot-list__item depot-list__item--adapter';
-        item.innerHTML = `<strong>${localEscapeHtml(name)}</strong><span class="depot-badge">${localEscapeHtml(state)}</span>`;
+        item.innerHTML = `<span><strong>${localEscapeHtml(name)}</strong><span class="depot-list__meta">${localEscapeHtml(detail)}</span></span><span class="depot-badge">${localEscapeHtml(state)}</span>`;
         ui.depotSourceList.appendChild(item);
       });
     }
@@ -2604,6 +2737,12 @@ function wireNewUI() {
     }
   });
   if (ui.authStatusBtn) ui.authStatusBtn.addEventListener('click', toggleAuthStatus);
+  if (ui.authForm) ui.authForm.addEventListener('submit', submitAuthForm);
+  ui.authModeButtons.forEach(button => button.addEventListener('click', () => setAuthMode(button.dataset.authMode)));
+  ui.authCloseButtons.forEach(button => button.addEventListener('click', closeAuthDialog));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && ui.authDialog && !ui.authDialog.hidden) closeAuthDialog();
+  });
   if (ui.premiumAuthToken) {
     ui.premiumAuthToken.addEventListener('input', () => {
       setWorkspaceSyncStatus(ui.premiumAuthToken.value.trim()
@@ -2623,6 +2762,7 @@ function wireNewUI() {
   if (ui.depotCommitImportBtn) ui.depotCommitImportBtn.addEventListener('click', commitBrokerImport);
   if (ui.clearImportBtn) ui.clearImportBtn.addEventListener('click', clearBrokerImport);
   if (ui.depotClearImportBtn) ui.depotClearImportBtn.addEventListener('click', clearBrokerImport);
+  loadStoredAuthSession();
   refreshAuthStatus();
   restoreLocalAlerts();
   renderPortfolioWorkspace();

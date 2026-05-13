@@ -2,6 +2,7 @@ const { handleApi, json, methodNotAllowed, parseJsonBody } = require('../lib/api
 const { buildResearchMemo } = require('../lib/research-sources');
 const { checkRateLimit, checkRateLimitAsync, rateLimitHeaders } = require('../lib/rate-limit');
 const { assertAllowedModel } = require('../lib/ai-providers');
+const { requirePremiumUserAsync } = require('../lib/premium-auth');
 
 function rateLimitConfig(env = {}, options = {}, input = {}) {
   const aiRequested = Boolean(input.aiProvider || options.aiResearchUrl || env.AI_RESEARCH_URL);
@@ -19,6 +20,12 @@ function rateLimitConfig(env = {}, options = {}, input = {}) {
 
 async function route(event, context, options = {}) {
   if (event.httpMethod !== 'POST') return methodNotAllowed(['POST']);
+  let user;
+  try {
+    user = await requirePremiumUserAsync(event, { ...options, context });
+  } catch (_error) {
+    return json(401, { ok: false, error: 'Research memo access requires authentication.' });
+  }
   const env = options.env || process.env;
   const input = parseJsonBody(event);
   if (input.aiProvider) {
@@ -31,7 +38,7 @@ async function route(event, context, options = {}) {
   const aiRequested = Boolean(input.aiProvider || options.aiResearchUrl || env.AI_RESEARCH_URL);
   const limitOptions = {
     prefix: 'research-memo',
-    keyMode: aiRequested ? 'ip' : undefined,
+    keyMode: aiRequested ? 'ip' : 'auth',
     env,
     ...rateLimitConfig(env, options, input),
     now: options.rateLimitNow
@@ -62,7 +69,8 @@ async function route(event, context, options = {}) {
     aiResearchApiKey: options.aiResearchApiKey,
     fetchImpl: options.fetchImpl,
     aiTimeoutMs: options.aiTimeoutMs,
-    maxOutputTokens: options.maxOutputTokens
+    maxOutputTokens: options.maxOutputTokens,
+    userId: user.userId
   });
   return json(200, { ok: true, data: { memo }, memo }, limitHeaders);
 }

@@ -1,11 +1,11 @@
 const { handleApi, json, methodNotAllowed, parseJsonBody } = require('../lib/api-helpers');
-const { requirePremiumUser } = require('../lib/premium-auth');
+const { requirePremiumUserAsync } = require('../lib/premium-auth');
 const { parseImportBuffer } = require('../lib/import-parser');
 const { createSecureStore } = require('../lib/secure-store');
 
 async function route(event, context, options = {}) {
   if (event.httpMethod !== 'POST') return methodNotAllowed(['POST']);
-  const user = requirePremiumUser(event, options);
+  const user = await requirePremiumUserAsync(event, { ...options, context });
   const body = parseJsonBody(event);
   const content = body.contentBase64
     ? Buffer.from(body.contentBase64, 'base64')

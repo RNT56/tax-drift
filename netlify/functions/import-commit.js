@@ -1,11 +1,11 @@
 const { handleApi, json, methodNotAllowed, parseJsonBody } = require('../lib/api-helpers');
-const { requirePremiumUser } = require('../lib/premium-auth');
+const { requirePremiumUserAsync } = require('../lib/premium-auth');
 const { createWorkspaceStore } = require('../lib/workspace-store');
 const Workspace = require('../../app-workspace');
 
 async function route(event, context, options = {}) {
   if (event.httpMethod !== 'POST') return methodNotAllowed(['POST']);
-  const user = requirePremiumUser(event, options);
+  const user = await requirePremiumUserAsync(event, { ...options, context });
   const body = parseJsonBody(event);
   const workspaceId = String(body.workspaceId || '').trim();
   if (!workspaceId) return json(400, { ok: false, error: { code: 'missing_workspace', message: 'Missing workspaceId.' } });

@@ -13,6 +13,14 @@ function parse(response) {
   return JSON.parse(response.body);
 }
 
+function authEnv(extra = {}) {
+  return {
+    PREMIUM_AUTH_MODE: 'mock',
+    PREMIUM_TEST_USER_ID: 'user-1',
+    ...extra
+  };
+}
+
 (async () => {
   const companyTickers = {
     0: { cik_str: 123456, ticker: 'TEST', title: 'Test Company Inc.' }
@@ -132,6 +140,20 @@ function parse(response) {
   assert.equal(uncited.confidence, 'low');
   assert.equal(uncited.thesisImpact, 'uncited AI claim');
 
+  const unauthModelsResponse = await AiModelsFunction.route(event('GET'), {}, {
+    env: { OPENAI_API_KEY: 'test-key' },
+    fetchImpl: async () => ({ ok: true, text: async () => JSON.stringify({ data: [] }) })
+  });
+  assert.equal(unauthModelsResponse.statusCode, 401);
+
+  const unauthResearchResponse = await ResearchMemoFunction.route(event('POST', { symbol: 'TEST' }), {}, {
+    env: {},
+    companyTickers,
+    secSubmissions,
+    secCompanyFacts
+  });
+  assert.equal(unauthResearchResponse.statusCode, 401);
+
   const badAi = await Research.enhanceMemoWithAi(memo, { symbol: 'TEST', aiProvider: 'openai' }, {
     env: { OPENAI_API_KEY: 'test-key' },
     fetchImpl: async () => ({ ok: true, text: async () => 'not json' })
@@ -140,7 +162,7 @@ function parse(response) {
   assert.ok(badAi.aiErrors[0].includes('JSON'));
 
   const modelsResponse = await AiModelsFunction.route(event('GET'), {}, {
-    env: { OPENAI_API_KEY: 'test-key' },
+    env: authEnv({ OPENAI_API_KEY: 'test-key' }),
     fetchImpl: async (url) => {
       assert.equal(String(url), 'https://api.openai.com/v1/models');
       return {
@@ -157,7 +179,7 @@ function parse(response) {
     symbol: 'TEST',
     aiProvider: 'openai',
     aiModel: 'gpt-test'
-  }), {}, { env: { OPENAI_API_KEY: 'test-key' } });
+  }), {}, { env: authEnv({ OPENAI_API_KEY: 'test-key' }) });
   assert.equal(disallowedModelResponse.statusCode, 400);
   assert.match(parse(disallowedModelResponse).error, /not allowed/);
 
@@ -165,7 +187,7 @@ function parse(response) {
     symbol: 'TEST',
     positionCurrency: 'EUR',
     taxCurrency: 'EUR'
-  }), {}, { companyTickers, secSubmissions, secCompanyFacts });
+  }), {}, { env: authEnv(), companyTickers, secSubmissions, secCompanyFacts });
   assert.equal(response.statusCode, 200);
   assert.equal(parse(response).memo.symbol, 'TEST');
 
@@ -175,7 +197,7 @@ function parse(response) {
   const secondLimitedEvent = event('POST', { symbol: 'TEST' });
   secondLimitedEvent.headers = { 'x-forwarded-for': '203.0.113.42' };
   const rateOptions = {
-    env: { AI_RESEARCH_RATE_LIMIT: '1', AI_RESEARCH_RATE_WINDOW_SECONDS: '60' },
+    env: authEnv({ AI_RESEARCH_RATE_LIMIT: '1', AI_RESEARCH_RATE_WINDOW_SECONDS: '60' }),
     rateLimitStore,
     rateLimitNow: 1_700_000_000_000,
     companyTickers,
@@ -215,7 +237,14 @@ function parse(response) {
   });
   secondAiEvent.headers = { 'x-forwarded-for': '198.51.100.7', authorization: 'Bearer two' };
   const aiRateOptions = {
-    env: { OPENAI_API_KEY: 'test-key', AI_RESEARCH_IP_LIMIT: '1', AI_RESEARCH_IP_WINDOW_SECONDS: '60' },
+    env: authEnv({
+      OPENAI_API_KEY: 'test-key',
+      PREMIUM_AUTH_MODE: '',
+      PREMIUM_TEST_USER_ID: '',
+      PREMIUM_API_TOKENS: 'one:user-1,two:user-2',
+      AI_RESEARCH_IP_LIMIT: '1',
+      AI_RESEARCH_IP_WINDOW_SECONDS: '60'
+    }),
     rateLimitStore: aiRateLimitStore,
     rateLimitNow: 1_700_000_000_000,
     companyTickers,

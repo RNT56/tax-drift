@@ -1,8 +1,8 @@
-# TaxSwitch — Investment Tax & Rebalance Calculator
+# TaxSwitch - Portfolio Command Center and Tax Calculator
 
-A mobile-first, dependency-free web app for evaluating taxable sell/rebuy, stock-switch and risk-aware trade decisions.
+A Germany-first portfolio command center plus the original mobile-first calculator for evaluating taxable sell/rebuy, stock-switch and risk-aware trade decisions.
 
-The app starts with blank position fields and can be used for any stock, ETF, index or instrument manually. It also includes optional Netlify Functions for multi-provider symbol search and latest-price lookup.
+The legacy calculator remains available at `/`. The new React/Vite portfolio workspace is available at `/portfolio.html` and focuses on read-only broker data, portfolio data quality, drift, German tax exposure and ranked next actions. TaxSwitch does not expose broker trade execution endpoints.
 
 ## What is included
 
@@ -20,9 +20,15 @@ The app starts with blank position fields and can be used for any stock, ETF, in
 - Probability-weighted bull/base/bear/recession/rate-cut/no-growth/multiple-compression cases plus seeded Monte Carlo sensitivity
 - Workspace schema v2 for decision cases, risk profile, research memos, watch rules, exposure and assumptions
 - Local fallback symbol catalog if no API key is configured
-- No external fonts or market-data calls from the browser; Netlify Identity is lazy-loaded only when sign-in is used
+- No external fonts or market-data calls from the browser; Supabase Auth is the production auth target
 - Netlify-ready `netlify.toml`
 - Security headers and SPA fallback redirect
+- React + Vite + TypeScript portfolio workspace at `/portfolio.html`
+- Route-level portfolio screens for Portfolio, Positions, Action Planner, Tax Lab, Imports, Broker Connections, Alerts, Reports and Settings
+- Typed portfolio domain model for accounts, broker connections, holdings, FIFO tax lots, cash, targets, snapshots, action plans, sync runs and data-quality issues
+- Supabase/Postgres migrations in `supabase/migrations`
+- Standardized new API response envelope: `{ ok, data, error, meta }`
+- Read-only broker provider boundary with manual/import and SnapTrade-compatible adapters
 
 ## Deploy on Netlify
 
@@ -31,9 +37,10 @@ The app starts with blank position fields and can be used for any stock, ETF, in
 1. Push this folder to a GitHub, GitLab, Bitbucket or Azure DevOps repository.
 2. Create a new Netlify site from the repository.
 3. Netlify reads `netlify.toml` automatically.
-4. The publish directory is the project root: `.`
-5. The functions directory is `netlify/functions`.
-6. No build command is required.
+4. Netlify runs `npm run build`.
+5. The publish directory is `dist`.
+6. The functions directory is `netlify/functions`.
+7. Supabase migrations are stored under `supabase/migrations` and are pushed with `npm run supabase:push`.
 
 ### API keys and environment variables
 
@@ -59,13 +66,23 @@ The app works without API keys in anonymous/manual mode. Netlify Functions and p
 | `AI_RESEARCH_IP_LIMIT` | Optional | AI request quota per IP | Defaults to 5/hour. Uses persistent Netlify Blobs when `DATA_ENCRYPTION_KEY` is configured; memory fallback is local/dev only. |
 | `AI_RESEARCH_IP_WINDOW_SECONDS` | Optional | AI request quota window | Defaults to 3600 seconds. |
 | `AI_ALLOWED_MODELS` | Optional | Override hosted AI allowlist | Comma-separated `provider:model` pairs. Defaults to `openai:gpt-5.5, anthropic:claude-4.6-sonnet, gemini:gemini-3.1-pro, xai:grok-4.2`. |
-| `DATA_ENCRYPTION_KEY` | Required only for persistent premium backend storage | Encrypting workspace/import/report/alert Blobs | Not needed for local anonymous use. Required before relying on Netlify Blobs for user financial data. Use a long random value. |
+| `DATA_ENCRYPTION_KEY` | Required for broker token persistence | Encrypting provider tokens before database storage | Not needed for local anonymous use. Required before broker linking. Use a long random value. |
 | `RESEND_API_KEY` | Optional | Email alerts | Not needed unless `email` alert delivery is enabled. In-app/local alerts work without it. |
-| `PREMIUM_API_TOKEN_HASHES` | Optional | Non-Identity API access/testing | Format is `sha256(token):userId`, comma-separated for multiple tokens. Netlify Identity is preferred for real users. |
+| `PREMIUM_API_TOKEN_HASHES` | Optional | API access/testing fallback | Format is `sha256(token):userId`, comma-separated for multiple tokens. Supabase Auth is preferred for real users. |
 | `ALERT_SCHEDULER_SECRET` | Recommended | Manual alert scheduler runs | Scheduled Netlify runs work without a browser user. Direct HTTP calls must include this value as `x-alert-scheduler-secret` or a Bearer token when configured. |
 | `TESSERACT_BIN` | Optional | Local OCR fallback for scanned broker PDFs | Defaults to `tesseract`. The OCR path needs a Tesseract binary in the runtime, but no external OCR API key. |
 | `OCR_LANGUAGES` | Optional | OCR language preference | Defaults to `deu+eng` and automatically falls back to installed languages such as `eng`. |
 | `OCR_PSM` | Optional | Tesseract page segmentation mode | Defaults to `6`, which works best for statement-like blocks and tables. |
+| `SUPABASE_DATABASE_URL` / `DATABASE_URL` / `POSTGRES_URL` | Required for production portfolio persistence | Supabase Postgres | Use the Supabase connection pooler URL in production. The app falls back to demo portfolio data when no database URL is configured. |
+| `SUPABASE_URL` | Required for Supabase Auth | Server-side token verification | Used by Netlify Functions to verify user access tokens. |
+| `SUPABASE_ANON_KEY` | Required for Supabase Auth | Server/browser auth client | Public anon key; safe for browser usage. |
+| `SUPABASE_SERVICE_ROLE_KEY` | Required for server token verification | Netlify Functions only | Keep secret. Never expose to browser code. |
+| `VITE_SUPABASE_URL` | Required for browser auth | React/Vite client | Same URL as `SUPABASE_URL`. |
+| `VITE_SUPABASE_ANON_KEY` | Required for browser auth | React/Vite client | Same value as `SUPABASE_ANON_KEY`. |
+| `PORTFOLIO_DEMO_MODE=true` | Optional | Portfolio API demo mode | Allows unauthenticated demo responses for preview/dev. Disable for production user data. |
+| `SNAPTRADE_CLIENT_ID` | Optional | SnapTrade-compatible read-only provider | Required before enabling real SnapTrade connection flows. |
+| `SNAPTRADE_CONSUMER_KEY` | Optional | SnapTrade-compatible read-only provider | Store only in Netlify Functions environment variables. Never expose to the browser. |
+| `SNAPTRADE_PORTAL_BASE_URL` | Optional | Broker connection portal URL | Used by the provider adapter to start a read-only connection flow. |
 
 Developer/test-only variables:
 
@@ -97,16 +114,59 @@ Make sure the variable is available to **Functions**.
 
 Do **not** put the API key in client-side JavaScript.
 
+Authenticated portfolio, broker and privacy endpoints require a reachable database unless demo mode is explicitly enabled. Broker provider tokens are encrypted with `DATA_ENCRYPTION_KEY` before storage and are never returned by export APIs.
+
+New portfolio endpoints:
+
+```text
+GET  /api/portfolio?demo=1
+GET  /api/action-plan?demo=1
+POST /api/action-plan
+GET  /api/broker-connections?demo=1
+POST /api/broker-connections
+POST /api/broker-sync
+GET  /api/portfolio-import
+POST /api/portfolio-import
+GET  /api/portfolio-report?type=portfolio_snapshot&format=json&demo=1
+POST /api/portfolio-report
+GET  /api/privacy?demo=1
+DELETE /api/privacy
+GET  /api/health
+```
+
+SnapTrade account data uses read-only API surfaces: connection portal login, accounts, positions, balances, activities and authorization refresh. TaxSwitch does not call or expose SnapTrade trading/order APIs.
+
 ## Local development
 
-The static calculator works by opening `index.html`, but Netlify Functions only work through Netlify Dev or a deployed Netlify site.
+The legacy calculator is still available at `/`. The portfolio workspace is served by Vite at `/portfolio.html`. Netlify Functions work through Netlify Dev or a deployed Netlify site.
 
 ```bash
 npm run check
-netlify dev
+npm run dev:vite
 ```
 
-Then open the local Netlify Dev URL.
+Then open `http://127.0.0.1:5173/portfolio.html`.
+
+For Netlify Functions and Supabase locally:
+
+```bash
+npm run supabase:start
+npm run dev
+```
+
+### Production readiness checks
+
+```bash
+npm run typecheck
+npm run lint
+npm run build
+npm run test:portfolio
+npm run test:migrations
+npm run test:api-contracts
+npm run test:e2e
+```
+
+The GitHub Actions workflow runs the full check suite plus Playwright Chromium smoke tests. CI uses Node 22 to match the Netlify/Supabase runtime target.
 
 ## Files
 
@@ -299,7 +359,7 @@ Simple flat mode intentionally stays approximate. German detailed mode adds chur
 
 ## Netlify premium setup
 
-TaxSwitch runs as a static app with Netlify Functions, Netlify Identity, Netlify Blobs, Scheduled Functions and optional Resend email alerts.
+TaxSwitch runs as a static app with Netlify Functions, Supabase Auth/Postgres, Scheduled Functions and optional Resend email alerts.
 
 ```bash
 npm install
@@ -312,6 +372,13 @@ For a live site:
 ```bash
 npx netlify login
 npx netlify init
+npx supabase login
+npx supabase link --project-ref "<project-ref>"
+npm run supabase:push
+npx netlify env:set SUPABASE_DATABASE_URL "<supabase-connection-pooler-url>" --secret
+npx netlify env:set SUPABASE_URL "https://<project-ref>.supabase.co"
+npx netlify env:set SUPABASE_ANON_KEY "<anon-key>"
+npx netlify env:set SUPABASE_SERVICE_ROLE_KEY "<service-role-key>" --secret
 npx netlify env:set DATA_ENCRYPTION_KEY "<32+ character secret>"
 npx netlify env:set RESEND_API_KEY "<resend key>"
 npx netlify env:set FMP_API_KEY "<market data key>"
@@ -319,9 +386,7 @@ npm run deploy:preview
 npm run deploy:prod
 ```
 
-For a free/local-only workflow, skip `DATA_ENCRYPTION_KEY` and `RESEND_API_KEY` until you are ready to persist signed-in user data or send email alerts from Netlify.
-
-Enable Netlify Identity in the site dashboard before testing signed-in workspace sync. Netlify Blobs is used as the database, so no separate DB is required.
+For a free/local-only workflow, use `npm run supabase:start` and skip production secrets until you are ready to persist signed-in user data or send email alerts from Netlify.
 
 ## Premium features
 

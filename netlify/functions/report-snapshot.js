@@ -1,9 +1,9 @@
 const { handleApi, json, methodNotAllowed, parseJsonBody, readQuery } = require('../lib/api-helpers');
-const { requirePremiumUser } = require('../lib/premium-auth');
+const { requirePremiumUserAsync } = require('../lib/premium-auth');
 const { createReportSnapshotStore } = require('../lib/report-snapshots');
 
 async function route(event, context, options = {}) {
-  const user = requirePremiumUser(event, options);
+  const user = await requirePremiumUserAsync(event, { ...options, context });
   const store = options.reportSnapshotStore || createReportSnapshotStore({ env: options.env });
   const query = readQuery(event);
   const snapshotId = String(query.id || '').trim();

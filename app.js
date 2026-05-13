@@ -149,12 +149,13 @@ const assetHistoryCache = new Map();
    formatPercent, formatShares, clampTaxRate, clampReturn now in app-core.js */
 
 function setCurrency(code) {
-  const normalized = normalizeCurrencyCode(code);
+  const hasCode = String(code || '').trim().length > 0;
+  const normalized = hasCode ? normalizeCurrencyCode(code) : '';
   if (els.currencyCode.value !== normalized) {
     els.currencyCode.value = normalized;
   }
   els.currencyUnits.forEach((unit) => {
-    unit.textContent = normalized;
+    unit.textContent = normalized || '—';
   });
 }
 
@@ -2274,8 +2275,8 @@ function clearInputs() {
   els.shares.value = '';
   els.buyPrice.value = '';
   els.currentPrice.value = '';
-  els.currencyCode.value = 'EUR';
-  els.taxRate.value = '26,375';
+  els.currencyCode.value = '';
+  els.taxRate.value = '';
   els.transactionCost.value = '';
   els.rebuyPrice.value = '';
   if (els.targetSellPrice) els.targetSellPrice.value = '';
@@ -2284,7 +2285,7 @@ function clearInputs() {
   if (els.switchBuyPrice) els.switchBuyPrice.value = '';
   if (els.switchTargetPrice) els.switchTargetPrice.value = '';
   if (els.switchBuyCost) els.switchBuyCost.value = '';
-  if (els.switchHorizonYears) els.switchHorizonYears.value = '1';
+  if (els.switchHorizonYears) els.switchHorizonYears.value = '';
   if (els.switchAllowFractional) els.switchAllowFractional.checked = true;
   switchProjectionSource = null;
   els.includeTaxOnNew.checked = true;
@@ -2345,7 +2346,7 @@ function clearInputs() {
   if (typeof lastDecisionResult !== 'undefined') lastDecisionResult = null;
   if (typeof clearBrokerImport === 'function') clearBrokerImport();
   try { localStorage.removeItem(LS_KEY); } catch(e) {}
-  setCurrency('EUR');
+  setCurrency('');
   setMode('same');
   calculate();
 }
@@ -2513,9 +2514,11 @@ document.addEventListener('click', (event) => {
 
 setCurrency(els.currencyCode.value);
 
-// Initialize: URL state > localStorage > fresh
+// Initialize: URL state > fresh blank state. Signed-in/server state lives outside this legacy calculator.
 const urlRestored = typeof decodeStateFromURL === 'function' && decodeStateFromURL();
-if (!urlRestored && typeof restoreFromLocalStorage === 'function') restoreFromLocalStorage();
+if (!urlRestored) {
+  try { localStorage.removeItem(LS_KEY); } catch(e) {}
+}
 migrateLegacyOldReturnToTargetPrice();
 syncSwitchProjectionFromActiveAssumption();
 if (els.switchBuyPrice?.value || els.switchTargetPrice?.value || els.expectedNewReturn?.value || selectedTargetInstrument) {

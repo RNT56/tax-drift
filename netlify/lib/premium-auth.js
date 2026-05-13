@@ -61,6 +61,31 @@ function normalizeUserId(value) {
   return clean(value).replace(/[^a-zA-Z0-9._:@-]/g, '').slice(0, 120);
 }
 
+async function verifySupabaseToken(token, env = process.env) {
+  if (!token || !env.SUPABASE_URL || !(env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY)) {
+    return null;
+  }
+
+  const { createClient } = require('@supabase/supabase-js');
+  const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false
+    },
+    global: {
+      headers: { Authorization: `Bearer ${token}` }
+    }
+  });
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user?.id) return null;
+
+  return {
+    userId: normalizeUserId(data.user.id),
+    email: clean(data.user.email),
+    authType: 'supabase'
+  };
+}
+
 function requirePremiumUser(event, options = {}) {
   const env = options.env || process.env;
   const identityUser = event?.clientContext?.user || options.context?.clientContext?.user;
@@ -88,9 +113,23 @@ function requirePremiumUser(event, options = {}) {
   };
 }
 
+async function requirePremiumUserAsync(event, options = {}) {
+  const env = options.env || process.env;
+  const token = getBearerToken(event);
+
+  if (token) {
+    const supabaseUser = await verifySupabaseToken(token, env);
+    if (supabaseUser) return supabaseUser;
+  }
+
+  return requirePremiumUser(event, options);
+}
+
 module.exports = {
   getBearerToken,
   requirePremiumUser,
+  requirePremiumUserAsync,
   sha256,
+  verifySupabaseToken,
   verifyToken
 };

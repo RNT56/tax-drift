@@ -14,7 +14,7 @@
   <link rel="manifest" href="site.webmanifest">
   <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=20">
+  <link rel="stylesheet" href="styles.css?v=21">
 </head>
 <body>
   <div class="app-shell">
@@ -90,62 +90,77 @@
 
     <main>
       <section id="depotPage" class="depot-page" aria-labelledby="depotTitle" hidden>
-        <div class="section-heading">
-          <span class="section-number">D</span>
-          <div>
+        <div class="depot-hero">
+          <div class="depot-hero__copy">
+            <p class="eyebrow">Depot workspace</p>
             <h2 id="depotTitle">Depot overview</h2>
-            <p>Review imported accounts, positions, FIFO lots and portfolio drift before using them in tax decisions.</p>
+            <p>Import broker files, review accounts and positions, then carry clean FIFO lots into tax decisions.</p>
           </div>
-        </div>
-
-        <div class="depot-toolbar">
-          <div id="depotSummary" class="depot-summary" aria-live="polite"></div>
-          <div class="workspace-actions workspace-actions--flush">
+          <div class="depot-hero__actions workspace-actions workspace-actions--flush" aria-label="Depot workspace actions">
             <button id="depotSaveWorkspaceBtn" type="button" class="ghost-button ghost-button--tight">Save workspace</button>
             <button id="depotSyncWorkspaceBtn" type="button" class="ghost-button ghost-button--tight">Sync backend</button>
           </div>
         </div>
 
-        <div class="depot-grid">
-          <section class="depot-section" aria-labelledby="depotImportTitle">
+        <div id="depotSummary" class="depot-summary" aria-label="Depot summary" aria-live="polite"></div>
+
+        <div class="depot-workspace">
+          <section class="depot-section depot-section--import" aria-labelledby="depotImportTitle">
             <div class="depot-section__header">
-              <h3 id="depotImportTitle">Imports</h3>
-              <span id="depotImportStatus">No import loaded</span>
+              <div>
+                <p class="depot-kicker">Primary action</p>
+                <h3 id="depotImportTitle">Import broker file</h3>
+              </div>
+              <div class="depot-section__tools">
+                <span id="depotImportStatus" class="depot-status-badge">No import loaded</span>
+                <span class="depot-info">
+                  <button type="button" class="depot-info__button" aria-label="Supported import sources" aria-describedby="depotSourceTooltip">i</button>
+                  <span id="depotSourceTooltip" class="depot-info__panel" role="tooltip">
+                    <span class="depot-info__heading">Supported sources</span>
+                    <span id="depotSourceList" class="depot-source-list depot-source-list--tooltip"></span>
+                  </span>
+                </span>
+              </div>
             </div>
-            <label class="file-drop file-drop--compact">
-              <span>Import broker file</span>
-              <input id="depotImportFile" type="file" accept=".csv,.pdf,text/csv,application/pdf">
-              <strong class="file-drop__button">Choose CSV or PDF</strong>
+            <label class="file-drop file-drop--depot">
+              <span class="file-drop__kicker">CSV or PDF</span>
+              <strong>Choose a transaction history or Depot snapshot</strong>
               <small id="depotImportFileName">No file selected</small>
+              <span class="file-drop__button">Choose file</span>
+              <input id="depotImportFile" type="file" accept=".csv,.pdf,text/csv,application/pdf">
             </label>
+            <div class="depot-import-hints" aria-label="Supported import outputs">
+              <span>Transactions</span>
+              <span>Position snapshots</span>
+              <span>FIFO lots</span>
+              <span>Cash events</span>
+            </div>
             <div id="depotImportPreview" class="import-preview" hidden></div>
-            <div class="workspace-actions">
-              <button id="depotCommitImportBtn" type="button" class="ghost-button ghost-button--tight" disabled>Commit to Depot</button>
+            <div class="depot-import-actions workspace-actions workspace-actions--flush">
+              <button id="depotCommitImportBtn" type="button" class="primary-button primary-button--small" disabled>Commit to Depot</button>
               <button id="depotClearImportBtn" type="button" class="ghost-button ghost-button--tight">Clear import</button>
             </div>
           </section>
-
-          <section class="depot-section" aria-labelledby="depotSourcesTitle">
-            <div class="depot-section__header">
-              <h3 id="depotSourcesTitle">Sources</h3>
-              <span>Adapters</span>
-            </div>
-            <div id="depotSourceList" class="depot-source-list"></div>
-          </section>
         </div>
 
-        <section class="depot-section depot-section--wide" aria-labelledby="depotPositionsTitle">
+        <section class="depot-section depot-section--positions" aria-labelledby="depotPositionsTitle">
           <div class="depot-section__header">
-            <h3 id="depotPositionsTitle">Positions</h3>
+            <div>
+              <p class="depot-kicker">Holdings</p>
+              <h3 id="depotPositionsTitle">Positions</h3>
+            </div>
             <span id="depotPositionCount">0 positions</span>
           </div>
           <div id="depotPositionsTable" class="depot-table" aria-live="polite"></div>
         </section>
 
-        <div class="depot-grid depot-grid--lower">
+        <div class="depot-support-grid">
           <section class="depot-section" aria-labelledby="depotAccountsTitle">
             <div class="depot-section__header">
-              <h3 id="depotAccountsTitle">Accounts</h3>
+              <div>
+                <p class="depot-kicker">Grouping</p>
+                <h3 id="depotAccountsTitle">Accounts</h3>
+              </div>
               <span id="depotAccountCount">0 accounts</span>
             </div>
             <div id="depotAccountList" class="depot-list"></div>
@@ -153,7 +168,10 @@
 
           <section class="depot-section" aria-labelledby="depotCashTitle">
             <div class="depot-section__header">
-              <h3 id="depotCashTitle">Cash events</h3>
+              <div>
+                <p class="depot-kicker">Ledger</p>
+                <h3 id="depotCashTitle">Cash events</h3>
+              </div>
               <span id="depotCashEventCount">0 events</span>
             </div>
             <div id="depotCashEventList" class="depot-list"></div>
@@ -257,7 +275,7 @@
 
           <label class="field">
             <span>Currency</span>
-            <input id="currencyCode" type="text" inputmode="latin" autocomplete="off" value="EUR" maxlength="5" aria-label="Currency code used for the calculation">
+            <input id="currencyCode" type="text" inputmode="latin" autocomplete="off" placeholder="e.g. EUR" maxlength="5" aria-label="Currency code used for the calculation">
             <em>for prices</em>
           </label>
 
@@ -329,7 +347,7 @@
         <div class="field-grid field-grid--two">
           <label class="field">
             <span>Tax rate</span>
-            <input id="taxRate" type="text" inputmode="decimal" autocomplete="off" value="26,375" aria-label="Tax rate on gains">
+            <input id="taxRate" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 26,375" aria-label="Tax rate on gains">
             <em>%</em>
           </label>
 
@@ -479,13 +497,13 @@
           <div id="fxFields" class="field-grid field-grid--two fx-fields" hidden>
             <label class="field">
               <span>Position currency</span>
-              <input id="positionCurrency" type="text" inputmode="latin" autocomplete="off" value="USD" maxlength="3" aria-label="Position currency">
+              <input id="positionCurrency" type="text" inputmode="latin" autocomplete="off" placeholder="e.g. USD" maxlength="3" aria-label="Position currency">
               <em>stock prices</em>
             </label>
 
             <label class="field">
               <span>Tax currency</span>
-              <input id="taxCurrency" type="text" inputmode="latin" autocomplete="off" value="EUR" maxlength="3" aria-label="Tax currency">
+              <input id="taxCurrency" type="text" inputmode="latin" autocomplete="off" placeholder="e.g. EUR" maxlength="3" aria-label="Tax currency">
               <em>for tax calc</em>
             </label>
 
@@ -709,7 +727,7 @@
               </label>
             </div>
 
-            <input id="switchHorizonYears" type="hidden" value="1">
+            <input id="switchHorizonYears" type="hidden">
 
             <label class="switch-row switch-row--compact" for="switchAllowFractional">
               <span>
@@ -865,7 +883,7 @@
               </label>
               <label class="field">
                 <span>Tolerance</span>
-                <input id="optimizerTolerance" type="text" inputmode="decimal" autocomplete="off" value="2" aria-label="Target tolerance percent">
+                <input id="optimizerTolerance" type="text" inputmode="decimal" autocomplete="off" placeholder="e.g. 2" aria-label="Target tolerance percent">
                 <em>%</em>
               </label>
               <label class="field">
@@ -1181,7 +1199,7 @@
       </section>
       </div><!-- /.main-grid -->
 
-      <section class="panel decision-lab" aria-labelledby="decisionLabTitle">
+      <section class="panel decision-lab" aria-labelledby="decisionLabTitle" data-calculator-page>
         <div class="section-heading">
           <span class="section-number">06</span>
           <div>
@@ -1341,6 +1359,35 @@
     <span id="shareToastMsg">Link copied!</span>
   </div>
 
+  <div id="authDialog" class="auth-dialog" role="dialog" aria-modal="true" aria-labelledby="authDialogTitle" hidden>
+    <div class="auth-dialog__backdrop" data-auth-close></div>
+    <form id="authForm" class="auth-dialog__panel">
+      <div class="auth-dialog__header">
+        <div>
+          <p class="eyebrow">TaxSwitch account</p>
+          <h2 id="authDialogTitle">Sign in</h2>
+        </div>
+        <button id="authCloseBtn" type="button" class="icon-button icon-button--small" aria-label="Close sign in" data-auth-close>
+          <span class="icon-x" aria-hidden="true"></span>
+        </button>
+      </div>
+      <div class="auth-dialog__tabs" role="tablist" aria-label="Authentication mode">
+        <button id="authSignInTab" type="button" class="is-active" data-auth-mode="signin">Sign in</button>
+        <button id="authSignUpTab" type="button" data-auth-mode="signup">Register</button>
+      </div>
+      <label class="field">
+        <span>Email</span>
+        <input id="authEmail" type="email" autocomplete="email" required>
+      </label>
+      <label class="field">
+        <span>Password</span>
+        <input id="authPassword" type="password" autocomplete="current-password" minlength="8" required>
+      </label>
+      <p id="authMessage" class="auth-dialog__message" role="status" aria-live="polite"></p>
+      <button id="authSubmitBtn" type="submit" class="primary-button">Sign in</button>
+    </form>
+  </div>
+
   <noscript>
     <p class="noscript">This calculator needs JavaScript enabled to run the calculations.</p>
   </noscript>
@@ -1352,7 +1399,7 @@
   <script src="app-core.js?v=20" defer></script>
   <script src="app-decision.js?v=20" defer></script>
   <script src="app-research.js?v=20" defer></script>
-  <script src="app-ui.js?v=20" defer></script>
-  <script src="app.js?v=20" defer></script>
+  <script src="app-ui.js?v=21" defer></script>
+  <script src="app.js?v=21" defer></script>
 </body>
 </html>
