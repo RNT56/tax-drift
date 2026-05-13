@@ -71,6 +71,12 @@ button {
   font-size: 0.75rem;
 }
 
+.mobile-menu-button,
+.mobile-bottom-nav,
+.mobile-menu-backdrop {
+  display: none;
+}
+
 .nav-list {
   display: grid;
   gap: 14px;
@@ -163,13 +169,6 @@ button {
   margin-top: 5px;
   color: #65736a;
   font-size: 0.9rem;
-}
-
-.route-switcher {
-  display: none;
-  min-width: 240px;
-  max-width: 300px;
-  flex: 0 0 260px;
 }
 
 .eyebrow {
@@ -1568,34 +1567,138 @@ button:disabled {
 @media (max-width: 920px) {
   .app-shell {
     grid-template-columns: 1fr;
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
   }
 
   .sidebar {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 30;
     height: auto;
-    padding: 12px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
   }
 
   .brand {
-    padding-bottom: 10px;
+    min-width: 0;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .brand small {
+    display: none;
+  }
+
+  .mobile-menu-button {
+    width: 40px;
+    height: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #ffffff;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+  }
+
+  .mobile-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 25;
+    display: block;
+    border: 0;
+    background: rgba(16, 32, 23, 0.38);
+    backdrop-filter: blur(2px);
   }
 
   .nav-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
-    overflow: visible;
-  }
-
-  .nav-section {
-    align-content: start;
-  }
-
-  .nav-item {
-    justify-content: center;
-  }
-
-  .nav-item span {
     display: none;
+  }
+
+  .sidebar.mobile-open .nav-list {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: 66px;
+    z-index: 35;
+    max-height: min(70vh, 620px);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    overflow: auto;
+    padding: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    background: #102017;
+    box-shadow: 0 22px 60px rgba(16, 32, 23, 0.32);
+  }
+
+  .sidebar.mobile-open .nav-section {
+    align-content: start;
+    gap: 6px;
+  }
+
+  .sidebar.mobile-open .nav-item {
+    justify-content: start;
+    min-height: 40px;
+  }
+
+  .sidebar.mobile-open .nav-item span {
+    display: inline;
+  }
+
+  .sidebar.mobile-open .nav-chevron {
+    display: block;
+  }
+
+  .mobile-bottom-nav {
+    position: fixed;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    z-index: 100;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
+    padding: 7px;
+    padding-bottom: calc(7px + env(safe-area-inset-bottom));
+    border: 1px solid rgba(16, 32, 23, 0.12);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 14px 40px rgba(16, 32, 23, 0.18);
+    backdrop-filter: blur(14px);
+  }
+
+  .mobile-tab {
+    min-width: 0;
+    min-height: 48px;
+    border: 0;
+    border-radius: 7px;
+    background: transparent;
+    color: #45524a;
+    display: grid;
+    place-items: center;
+    align-content: center;
+    gap: 3px;
+    padding: 6px 4px;
+    text-decoration: none;
+    font-size: 0.68rem;
+    font-weight: 800;
+  }
+
+  .mobile-tab span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-tab.active {
+    background: #102017;
+    color: #ffffff;
   }
 
   .nav-chevron {
@@ -1609,11 +1712,8 @@ button:disabled {
     padding: 18px;
   }
 
-  .route-switcher {
-    display: block;
-    width: 100%;
+  .topbar-subtitle {
     max-width: none;
-    flex-basis: auto;
   }
 
   main {
@@ -1679,11 +1779,11 @@ button:disabled {
   }
 
   .nav-list {
-    grid-template-columns: 1fr;
+    display: none;
   }
 
-  .nav-section {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+  .sidebar.mobile-open .nav-list {
+    grid-template-columns: 1fr;
   }
 
   .nav-group-title {
@@ -1691,7 +1791,7 @@ button:disabled {
   }
 
   .status-strip {
-    justify-content: start;
+    display: none;
   }
 
   .field-grid,

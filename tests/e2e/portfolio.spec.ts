@@ -34,3 +34,19 @@ test("core production workflows are exposed in React shell", async ({ page }) =>
   await page.goto("/planner");
   await expect(page.getByRole("button", { name: /Generate constrained plan/ })).toBeVisible();
 });
+
+test("mobile navigation uses bottom tabs and an all-sections drawer", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  await expect(page.getByLabel("Primary mobile navigation")).toBeVisible();
+  await expect(page.locator(".sidebar .nav-list")).toBeHidden();
+
+  await page.getByRole("button", { name: "Open all workspace areas" }).click();
+  await expect(page.getByRole("link", { name: /Reports: Exports/ })).toBeVisible();
+  await page.getByRole("link", { name: /Reports: Exports/ }).click();
+
+  await expect(page).toHaveURL(/\/reports$/);
+  await expect(page.getByRole("heading", { name: "Reports" })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Reports: Exports/ })).toBeHidden();
+});

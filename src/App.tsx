@@ -15,11 +15,13 @@ import {
   LogIn,
   LogOut,
   Mail,
+  Menu,
+  MoreHorizontal,
   SearchCheck,
   Settings,
-  TableProperties
+  TableProperties,
+  X
 } from "lucide-react";
-import { CustomSelect } from "./components/CustomSelect";
 import { generateActionPlan } from "./domain/action-planner";
 import { emptyPortfolioInput, loadPortfolioWorkspace, type PortfolioWorkspace } from "./domain/api";
 import { getAuthState, onAuthChange, signIn, signOut, signUp, type AuthState } from "./domain/auth";
@@ -86,6 +88,7 @@ const routes = [
 }>;
 
 const routeGroups = ["Command", "Portfolio Data", "Intelligence", "Operations"] as const;
+const mobilePrimaryRouteIds = ["overview", "assets", "decision", "data"] as const satisfies readonly RouteId[];
 
 function routeFromPath(pathname: string): RouteId {
   const normalized = pathname.replace(/\/+$/, "") || "/";
@@ -205,6 +208,7 @@ function AuthControl({
 
 export function App() {
   const [activeRoute, setActiveRoute] = useState<RouteId>(() => routeFromPath(window.location.pathname));
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const initialSnapshot = useMemo(() => derivePortfolioSnapshot(emptyPortfolioInput), []);
   const initialActionPlan = useMemo(() => generateActionPlan(initialSnapshot), [initialSnapshot]);
   const [workspaceState, setWorkspaceState] = useState<PortfolioWorkspace>({
@@ -265,11 +269,13 @@ export function App() {
       window.history.pushState({}, "", nextPath);
     }
     setActiveRoute(routeId);
+    setIsMobileMenuOpen(false);
   }
 
   return (
     <div className="app-shell">
-      <aside className="sidebar" aria-label="TaxSwitch navigation">
+      {isMobileMenuOpen ? <button className="mobile-menu-backdrop" type="button" aria-label="Close navigation menu" onClick={() => setIsMobileMenuOpen(false)} /> : null}
+      <aside className={isMobileMenuOpen ? "sidebar mobile-open" : "sidebar"} aria-label="TaxSwitch navigation">
         <a className="brand" href="/" aria-label="TaxSwitch workspace" onClick={(event) => { event.preventDefault(); navigate("overview"); }}>
           <BriefcaseBusiness size={24} aria-hidden="true" />
           <span>
@@ -277,6 +283,15 @@ export function App() {
             <small>Unified portfolio workspace</small>
           </span>
         </a>
+        <button
+          className="mobile-menu-button"
+          type="button"
+          aria-label={isMobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-expanded={isMobileMenuOpen}
+          onClick={() => setIsMobileMenuOpen((value) => !value)}
+        >
+          {isMobileMenuOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+        </button>
         <nav className="nav-list">
           {routeGroups.map((group) => (
             <section className="nav-section" key={group} aria-label={group}>
@@ -313,22 +328,6 @@ export function App() {
             <h1>{activeRouteMeta.label}</h1>
             <p className="topbar-subtitle">{activeRouteMeta.description}</p>
           </div>
-          <div className="route-switcher">
-            <CustomSelect
-              label="Workspace"
-              value={activeRoute}
-              onChange={(value) => navigate(value as RouteId)}
-              options={routes.map((route) => {
-                const Icon = route.icon;
-                return {
-                  value: route.id,
-                  label: route.label,
-                  description: route.description,
-                  icon: <Icon size={16} aria-hidden="true" />
-                };
-              })}
-            />
-          </div>
           <div className="status-strip" aria-label="Portfolio status">
             <span>{isLoadingWorkspace ? "Loading" : workspaceState.source}</span>
             <span>{snapshot.openIssueCount} issues</span>
@@ -344,6 +343,38 @@ export function App() {
           </Suspense>
         </main>
       </div>
+      <nav className="mobile-bottom-nav" aria-label="Primary mobile navigation">
+        {mobilePrimaryRouteIds.map((routeId) => {
+          const route = routes.find((item) => item.id === routeId) ?? routes[0];
+          const Icon = route.icon;
+          const isActive = activeRoute === route.id;
+          return (
+            <a
+              key={route.id}
+              href={route.path}
+              className={isActive ? "mobile-tab active" : "mobile-tab"}
+              aria-current={isActive ? "page" : undefined}
+              onClick={(event) => {
+                event.preventDefault();
+                navigate(route.id);
+              }}
+            >
+              <Icon size={20} aria-hidden="true" />
+              <span>{route.label}</span>
+            </a>
+          );
+        })}
+        <button
+          className={mobilePrimaryRouteIds.includes(activeRoute as typeof mobilePrimaryRouteIds[number]) ? "mobile-tab" : "mobile-tab active"}
+          type="button"
+          aria-label="Open all workspace areas"
+          aria-expanded={isMobileMenuOpen}
+          onClick={() => setIsMobileMenuOpen(true)}
+        >
+          <MoreHorizontal size={20} aria-hidden="true" />
+          <span>More</span>
+        </button>
+      </nav>
     </div>
   );
 }
