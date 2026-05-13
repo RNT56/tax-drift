@@ -136,6 +136,8 @@ button {
 
 .workspace {
   min-width: 0;
+  position: relative;
+  z-index: 0;
   display: grid;
   grid-template-rows: auto 1fr;
 }
@@ -188,11 +190,7 @@ button {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 14px;
-}
-
-.topbar-right .auth-control {
-  flex: 0 0 auto;
+  min-width: min(100%, 600px);
 }
 
 .eyebrow {
@@ -206,13 +204,13 @@ button {
 
 .status-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(104px, auto));
+  grid-template-columns: repeat(4, minmax(112px, 1fr));
   justify-content: flex-end;
   gap: 8px;
-  max-width: 510px;
+  width: min(600px, 48vw);
 }
 
-.status-strip span,
+.status-card,
 .status-pill,
 .input-chip-row span {
   border: 1px solid #d6ded3;
@@ -266,7 +264,16 @@ button {
 }
 
 .status-card.timestamp {
-  grid-column: span 3;
+  grid-column: span 4;
+}
+
+.status-strip > .auth-control {
+  min-width: 0;
+  width: 100%;
+}
+
+.status-strip > .auth-control .account-card {
+  flex: 1 1 auto;
 }
 
 .auth-control {
@@ -276,7 +283,6 @@ button {
   gap: 8px;
 }
 
-.auth-button,
 .auth-submit,
 .icon-action {
   border: 1px solid #cdd8cf;
@@ -285,7 +291,6 @@ button {
   color: #17211b;
 }
 
-.auth-button,
 .auth-submit {
   display: inline-flex;
   align-items: center;
@@ -295,6 +300,90 @@ button {
   padding: 8px 12px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.account-card {
+  min-width: 0;
+  min-height: 52px;
+  width: 100%;
+  border: 1px solid #cdd8cf;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #17211b;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  box-shadow: 0 1px 1px rgba(16, 32, 23, 0.04);
+}
+
+button.account-card {
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.account-trigger {
+  border-color: #9ed3b0;
+  background: #f4fbf6;
+}
+
+.account-card.signed {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  border-color: #b8d9c4;
+  background: #f4fbf6;
+}
+
+.account-card.muted {
+  background: #f8faf6;
+  color: #65736a;
+}
+
+.account-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: #102017;
+  color: #ffffff;
+}
+
+.account-trigger .account-icon,
+.account-card.signed .account-icon {
+  background: #dff4e5;
+  color: #17753f;
+}
+
+.account-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.account-copy small {
+  color: #78867d;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.account-copy strong {
+  min-width: 0;
+  color: #17211b;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.05;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-inline-icon {
+  color: #65736a;
 }
 
 .icon-action {
@@ -1769,20 +1858,34 @@ button:disabled {
     white-space: nowrap;
   }
 
-  .mobile-appbar .auth-chip {
-    max-width: 76px;
+  .mobile-appbar .auth-control {
+    justify-self: end;
   }
 
-  .mobile-appbar .auth-button {
+  .mobile-appbar .account-card {
     width: 40px;
     min-height: 40px;
     padding: 0;
-    overflow: hidden;
-    color: transparent;
+    grid-template-columns: 1fr;
+    place-items: center;
   }
 
-  .mobile-appbar .auth-button svg {
+  .mobile-appbar .account-icon {
+    width: 100%;
+    height: 100%;
+    border-radius: 8px;
+    background: transparent;
     color: #102017;
+  }
+
+  .mobile-appbar .account-copy,
+  .mobile-appbar .account-inline-icon {
+    display: none;
+  }
+
+  .mobile-appbar .icon-action {
+    width: 40px;
+    height: 40px;
   }
 
   .mobile-bottom-nav {
@@ -1790,7 +1893,7 @@ button:disabled {
     left: 10px;
     right: 10px;
     bottom: 10px;
-    z-index: 100;
+    z-index: 130;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 4px;
@@ -1801,6 +1904,8 @@ button:disabled {
     background: rgba(255, 255, 255, 0.96);
     box-shadow: 0 14px 40px rgba(16, 32, 23, 0.18);
     backdrop-filter: blur(14px);
+    pointer-events: auto;
+    transform: translateZ(0);
   }
 
   .mobile-tab {
@@ -1818,6 +1923,7 @@ button:disabled {
     text-decoration: none;
     font-size: 0.68rem;
     font-weight: 800;
+    pointer-events: auto;
   }
 
   .mobile-tab span {

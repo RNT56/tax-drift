@@ -20,6 +20,7 @@ import {
   SearchCheck,
   Settings,
   TableProperties,
+  UserRound,
   X
 } from "lucide-react";
 import { generateActionPlan } from "./domain/action-planner";
@@ -155,15 +156,31 @@ function AuthControl({
   }
 
   if (!auth.configured) {
-    return <span className="auth-chip muted">Demo</span>;
+    return (
+      <span className="account-card account-card-static muted" aria-label="Account mode: demo">
+        <span className="account-icon">
+          <DatabaseZap size={17} aria-hidden="true" />
+        </span>
+        <span className="account-copy">
+          <small>Account</small>
+          <strong>Demo</strong>
+        </span>
+      </span>
+    );
   }
 
   if (auth.user) {
     return (
       <div className="auth-control">
-        <span className="auth-chip">
-          <Mail size={14} aria-hidden="true" />
-          {auth.user.email || "Signed in"}
+        <span className="account-card signed">
+          <span className="account-icon">
+            <UserRound size={17} aria-hidden="true" />
+          </span>
+          <span className="account-copy">
+            <small>Account</small>
+            <strong>{auth.user.email || "Connected"}</strong>
+          </span>
+          <Mail className="account-inline-icon" size={14} aria-hidden="true" />
         </span>
         <button className="icon-action" type="button" onClick={logout} aria-label="Sign out" title="Sign out">
           <LogOut size={17} aria-hidden="true" />
@@ -175,12 +192,19 @@ function AuthControl({
   return (
     <div className="auth-control">
       <button
-        className="auth-button"
+        className="account-card account-trigger"
         type="button"
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
         onClick={() => setIsOpen((value) => !value)}
       >
-        <LogIn size={16} aria-hidden="true" />
-        Sign in
+        <span className="account-icon">
+          <LogIn size={17} aria-hidden="true" />
+        </span>
+        <span className="account-copy">
+          <small>Account</small>
+          <strong>Connect</strong>
+        </span>
       </button>
       {isOpen ? (
         <form className="auth-popover" onSubmit={submit}>
@@ -362,12 +386,12 @@ export function App() {
                 <small>Actions</small>
                 <strong>{actionPlan.actions.length}</strong>
               </span>
+              <AuthControl auth={auth} onAuthUpdate={setAuth} />
               <span className="status-card timestamp">
                 <small>As of</small>
                 <strong>{new Date(snapshot.asOf).toLocaleString("de-DE")}</strong>
               </span>
             </div>
-            <AuthControl auth={auth} onAuthUpdate={setAuth} />
           </div>
         </header>
         <main>
