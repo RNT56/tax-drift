@@ -38,7 +38,15 @@ const requiredTables = [
   'audit_events',
   'consent_records',
   'import_runs',
-  'import_reconciliation_items'
+  'import_reconciliation_items',
+  'research_subjects',
+  'research_runs',
+  'research_evidence',
+  'research_source_snapshots',
+  'research_metrics',
+  'research_events',
+  'research_copilot_threads',
+  'research_copilot_messages'
 ];
 
 for (const table of requiredTables) {
@@ -49,8 +57,15 @@ assert.match(sql, /encrypted_user_token bytea/, 'broker tokens must be encrypted
 assert.match(sql, /provider_user_id text/, 'provider user id must be tracked separately from app user id');
 assert.match(sql, /create index if not exists idx_sync_runs_user_status/, 'sync run status index required');
 assert.match(sql, /create index if not exists idx_import_runs_user_status/, 'import run status index required');
+assert.match(sql, /create index if not exists idx_research_subjects_user_symbol/, 'research subject symbol index required');
+assert.match(sql, /create index if not exists idx_research_runs_user_created/, 'research run timestamp index required');
+assert.match(sql, /create index if not exists idx_research_evidence_run_category/, 'research evidence join index required');
+assert.match(sql, /create index if not exists idx_research_events_run_score/, 'research event risk index required');
 assert.match(supabaseSql, /alter table portfolio_users enable row level security/, 'Supabase portfolio users table must use RLS');
+assert.match(supabaseSql, /alter table research_runs enable row level security/, 'Supabase research runs table must use RLS');
+assert.match(supabaseSql, /alter table research_copilot_messages enable row level security/, 'Supabase research copilot messages table must use RLS');
 assert.match(supabaseSql, /user_id = auth\.uid\(\)::text/, 'Supabase owner policies must bind rows to auth.uid()');
+assert.match(supabaseSql, /create policy research_evidence_owner_all[\s\S]+user_id = auth\.uid\(\)::text/, 'research evidence owner policy required');
 assert.match(supabaseSql, /on_auth_user_created/, 'Supabase auth registration trigger required');
 assert.doesNotMatch(sql, /trade_execution|place_order|submit_order/, 'schema must not expose trading execution tables');
 

@@ -58,6 +58,21 @@
   status = 200
 
 [[redirects]]
+  from = "/api/research"
+  to = "/.netlify/functions/research"
+  status = 200
+
+[[redirects]]
+  from = "/api/research-copilot"
+  to = "/.netlify/functions/research-copilot"
+  status = 200
+
+[[redirects]]
+  from = "/api/research-status"
+  to = "/.netlify/functions/research-status"
+  status = 200
+
+[[redirects]]
   from = "/api/auth-config"
   to = "/.netlify/functions/auth-config"
   status = 200

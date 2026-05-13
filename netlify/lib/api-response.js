@@ -27,13 +27,13 @@ function created(data, meta = {}, headers = {}) {
   return jsonResponse(201, { ok: true, data, error: null, meta }, headers);
 }
 
-function fail(statusCode, code, message, details, meta = {}) {
+function fail(statusCode, code, message, details, meta = {}, headers = {}) {
   return jsonResponse(statusCode, {
     ok: false,
     data: null,
     error: { code, message, details: details || null },
     meta
-  });
+  }, headers);
 }
 
 function methodNotAllowed(method, allowed) {

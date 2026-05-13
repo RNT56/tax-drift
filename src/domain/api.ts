@@ -1,7 +1,13 @@
 import { generateActionPlan } from "./action-planner";
 import { derivePortfolioSnapshot } from "./portfolio";
 import { money } from "./money";
-import type { ActionPlan, PortfolioInput, PortfolioSnapshot } from "./types";
+import type {
+  ActionPlan,
+  PortfolioInput,
+  PortfolioSnapshot,
+  ResearchRun,
+  ResearchStatus
+} from "./types";
 
 export interface PortfolioWorkspace {
   snapshot: PortfolioSnapshot;
@@ -70,6 +76,26 @@ async function getJson<T>(url: string, accessToken?: string): Promise<ApiEnvelop
   return response.json() as Promise<ApiEnvelope<T>>;
 }
 
+async function postJson<T>(url: string, body: Record<string, unknown>, accessToken?: string): Promise<ApiEnvelope<T>> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {})
+    },
+    credentials: "same-origin",
+    body: JSON.stringify(body)
+  });
+  const payload = await response.json().catch(() => null) as ApiEnvelope<T> | null;
+  if (!response.ok) {
+    const message = payload?.error?.message || `${url} returned ${response.status}`;
+    throw new Error(message);
+  }
+  if (!payload) throw new Error(`${url} returned an invalid JSON response`);
+  return payload;
+}
+
 function localWorkspace(warning?: string): PortfolioWorkspace {
   return {
     snapshot: localSnapshot,
@@ -102,4 +128,50 @@ export async function loadPortfolioWorkspace(accessToken?: string): Promise<Port
   } catch (error) {
     return localWorkspace(error instanceof Error ? error.message : "Portfolio API unavailable.");
   }
+}
+
+export async function loadResearchStatus(): Promise<ResearchStatus> {
+  try {
+    const response = await getJson<ResearchStatus>("/api/research-status");
+    return response.data || {
+      scope: ["equity", "etf"],
+      advisoryMode: "non-advisory",
+      configured: {},
+      capabilities: {}
+    };
+  } catch {
+    return {
+      scope: ["equity", "etf"],
+      advisoryMode: "non-advisory",
+      configured: {},
+      capabilities: { research: "unavailable" }
+    };
+  }
+}
+
+export async function listResearchRuns(accessToken?: string, symbol?: string): Promise<ResearchRun[]> {
+  if (!accessToken) return [];
+  const query = symbol ? `?symbol=${encodeURIComponent(symbol)}` : "";
+  const response = await getJson<{ runs: ResearchRun[] }>(`/api/research${query}`, accessToken);
+  return response.ok && Array.isArray(response.data?.runs) ? response.data.runs : [];
+}
+
+export async function createResearchRun(input: Record<string, unknown>, accessToken?: string): Promise<ResearchRun> {
+  if (!accessToken) throw new Error("Sign in to create persisted research runs.");
+  const response = await postJson<{ run: ResearchRun }>("/api/research", input, accessToken);
+  const run = response.data?.run;
+  if (!response.ok || !run) throw new Error(response.error?.message || "Research run was not created.");
+  return run;
+}
+
+export async function sendResearchCopilotMessage(input: Record<string, unknown>, accessToken?: string): Promise<{
+  response?: { answer: string; sourceEvidenceIds: string[]; sourceRequests: Array<{ type: string; reason: string }> };
+  messages?: Array<{ role: string; content: string; sourceEvidenceIds?: string[]; sourceRequests?: Array<{ type: string; reason: string }> }>;
+}> {
+  if (!accessToken) throw new Error("Sign in to use the research copilot.");
+  const response = await postJson<{
+    response: { answer: string; sourceEvidenceIds: string[]; sourceRequests: Array<{ type: string; reason: string }> };
+    messages: Array<{ role: string; content: string; sourceEvidenceIds?: string[]; sourceRequests?: Array<{ type: string; reason: string }> }>;
+  }>("/api/research-copilot", input, accessToken);
+  return response.data || {};
 }

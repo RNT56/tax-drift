@@ -1,5 +1,6 @@
 const { ok, withApiHandler } = require("../lib/api-response");
 const { healthcheck } = require("../lib/db");
+const { getResearchStatus } = require("../lib/research-pipeline");
 
 exports.handler = withApiHandler(async (_event, _context, meta) => {
   const database = await healthcheck().catch((error) => ({
@@ -20,7 +21,8 @@ exports.handler = withApiHandler(async (_event, _context, meta) => {
           configured: Boolean(process.env.SNAPTRADE_CLIENT_ID && process.env.SNAPTRADE_CONSUMER_KEY),
           readOnly: true
         }
-      }
+      },
+      research: getResearchStatus(process.env)
     },
     meta
   );

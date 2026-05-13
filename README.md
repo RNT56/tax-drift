@@ -52,7 +52,8 @@ The app works without API keys in anonymous/manual mode. Netlify Functions and p
 | `FMP_API_KEY` | Optional | Live symbol search, latest prices, FX rates | Preferred for broader quote/FX coverage when available. |
 | `EODHD_API_KEY` | Optional | Live symbol search, latest prices, FX rates | Additional fallback provider. |
 | `ALPHA_VANTAGE_API_KEY` | Optional | Live symbol search fallback | Useful as another fallback; coverage and rate limits vary. |
-| `FRED_API_KEY` | Optional | Macro context in research memos | Research memo still works without it, but FRED evidence is skipped. |
+| `FINNHUB_API_KEY` | Optional | Premium-ready research datasets | Enables future transcript, estimate, ownership and ETF integrations where implemented. |
+| `FRED_API_KEY` | Optional | Macro context in research | Research still works without it, but FRED evidence is skipped. |
 | `OPENAI_API_KEY` | Optional | Hosted AI research provider | Enables OpenAI provider/model selection in the AI Research tab. |
 | `ANTHROPIC_API_KEY` | Optional | Hosted AI research provider | Enables Anthropic provider/model selection in the AI Research tab. |
 | `GEMINI_API_KEY` | Optional | Hosted AI research provider | Enables Google Gemini provider/model selection in the AI Research tab. |
@@ -66,6 +67,12 @@ The app works without API keys in anonymous/manual mode. Netlify Functions and p
 | `AI_RESEARCH_IP_LIMIT` | Optional | AI request quota per IP | Defaults to 5/hour. Uses persistent Netlify Blobs when `DATA_ENCRYPTION_KEY` is configured; memory fallback is local/dev only. |
 | `AI_RESEARCH_IP_WINDOW_SECONDS` | Optional | AI request quota window | Defaults to 3600 seconds. |
 | `AI_ALLOWED_MODELS` | Optional | Override hosted AI allowlist | Comma-separated `provider:model` pairs. Defaults to `openai:gpt-5.5, anthropic:claude-4.6-sonnet, gemini:gemini-3.1-pro, xai:grok-4.2`. |
+| `RESEARCH_RSS_FEEDS` | Optional | Allowlisted RSS/Atom research feeds | Comma-separated URLs or JSON array. Per-subject issuer feeds can also be submitted from the portfolio Research route. |
+| `RESEARCH_FETCH_SEC_HTML` | Optional | SEC filing section extraction | Defaults to enabled. Set `false` to skip filing HTML fetches. |
+| `RESEARCH_RATE_LIMIT` | Optional | Evidence-only research run quota | Defaults to 20/hour. |
+| `RESEARCH_AI_RATE_LIMIT` | Optional | AI-enhanced research run quota | Defaults to 5/hour. |
+| `RESEARCH_COPILOT_RATE_LIMIT` | Optional | Cited research copilot quota | Defaults to 10/hour. |
+| `OFAC_SDN_URL` | Optional | Sanctions source URL | Defaults to OFAC SDN XML. Matches are low-confidence flags requiring manual verification. |
 | `DATA_ENCRYPTION_KEY` | Required for broker token persistence | Encrypting provider tokens before database storage | Not needed for local anonymous use. Required before broker linking. Use a long random value. |
 | `RESEND_API_KEY` | Optional | Email alerts | Not needed unless `email` alert delivery is enabled. In-app/local alerts work without it. |
 | `PREMIUM_API_TOKEN_HASHES` | Optional | API access/testing fallback | Format is `sha256(token):userId`, comma-separated for multiple tokens. Supabase Auth is preferred for real users. |
@@ -329,19 +336,26 @@ It includes:
 
 ## Research sources
 
-Research memos use deterministic source collection and schema validation. They currently support:
+The portfolio app includes a dedicated Research workspace at `/portfolio.html`. It stores durable research runs, source snapshots, evidence, normalized metrics, events and copilot messages in Postgres/Supabase tables. The legacy research memo path remains available for the calculator.
+
+Research uses deterministic source collection and schema validation before AI synthesis. It currently supports:
 
 - SEC company tickers, submissions and companyfacts APIs for US-listed company context
-- configured FMP profile, ratios and licensed-provider news evidence when `FMP_API_KEY` is available
+- SEC filing HTML extraction for business/value-proposition and risk-factor evidence when reliable
+- configured FMP profile, ratios, peers, estimates, earnings calendar, insider records, ETF holdings and licensed-provider news evidence when `FMP_API_KEY` is available
+- configured Alpha Vantage overview, ETF profile and news/sentiment evidence when `ALPHA_VANTAGE_API_KEY` is available
 - optional FRED macro evidence when `FRED_API_KEY` is configured
 - ECB SDMX FX context
+- allowlisted RSS/Atom feeds through `RESEARCH_RSS_FEEDS` and per-subject issuer feed URLs
+- GDELT and ReliefWeb global-event context
+- OFAC sanctions-list text matching for low-confidence risk flags that require manual verification
 - optional hosted AI memo enhancement through OpenAI, Anthropic, Google Gemini, xAI Grok or Perplexity
 - optional custom AI memo enhancement through `AI_RESEARCH_URL`
 - local fallback memo content when the backend or source collection is unavailable
 
-AI-enhanced memos keep the deterministic evidence memo as the base. Provider responses are size-limited, timeout-limited and schema-validated; every evidence item receives an ID, and uncited AI claims are downgraded to low confidence. The frontend sends a sanitized Decision Lab context with scenario margin, Monte Carlo stats, assumption quality, risk flags, tax-loss state and portfolio risk so AI output can support contradiction checks, scenario suggestions, assumption critique, report narrative and watch-rule suggestions without becoming a buy/sell/hold recommendation.
+AI-enhanced memos keep the deterministic evidence memo as the base. Provider responses are size-limited, timeout-limited and schema-validated; every evidence item receives an ID, and uncited AI claims are downgraded to low confidence. The frontend sends sanitized context so AI output can support contradiction checks, scenario suggestions, assumption critique, report narrative and watch-rule suggestions without becoming a buy/sell/hold recommendation.
 
-Analyst revisions, insider transactions, transcripts, detailed event calendars and full valuation-provider synthesis are not bundled. The app leaves those as optional provider integrations rather than scraping.
+Premium-only datasets such as transcripts, detailed ownership, richer ETF holdings and estimate history are treated as provider-key-gated integrations rather than scraped data. Missing sources remain visible as partial, stale, provider-unavailable or premium-key-missing states.
 
 ## Assumptions
 
@@ -351,9 +365,9 @@ Simple flat mode intentionally stays approximate. German detailed mode adds chur
 
 ## Current limitations
 
-- Research memos are evidence-backed and optionally AI-enhanced, but still constrained to non-advisory scenario analysis.
+- Research is evidence-backed and optionally AI-enhanced, but still constrained to non-advisory scenario analysis.
 - PDF output is print-ready HTML/browser print, not a generated binary PDF file.
-- ETF/fund handling covers tax-relevant fields and manual fund assumptions, but not full issuer-document research.
+- ETF/fund handling covers tax-relevant fields, provider holdings where configured and user-supplied issuer feeds/documents; universal automatic issuer-document coverage is not assumed.
 - Portfolio risk uses user-entered or scenario-estimated volatility and correlation; it does not infer a full covariance matrix automatically.
 - Tax-loss harvesting reports realized loss, estimated offset value, caveats and selected replacement-candidate context; automated candidate sourcing depends on future provider integrations.
 

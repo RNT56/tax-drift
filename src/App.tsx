@@ -11,6 +11,7 @@ import {
   LogIn,
   LogOut,
   Mail,
+  SearchCheck,
   Settings,
   TableProperties
 } from "lucide-react";
@@ -24,6 +25,7 @@ const PortfolioCommandCenter = lazy(() => import("./routes/PortfolioCommandCente
 const PositionsRoute = lazy(() => import("./routes/PositionsRoute"));
 const ActionPlannerRoute = lazy(() => import("./routes/ActionPlannerRoute"));
 const TaxLabRoute = lazy(() => import("./routes/TaxLabRoute"));
+const ResearchRoute = lazy(() => import("./routes/ResearchRoute"));
 const ImportsRoute = lazy(() => import("./routes/ImportsRoute"));
 const BrokerConnectionsRoute = lazy(() => import("./routes/BrokerConnectionsRoute"));
 const AlertsRoute = lazy(() => import("./routes/AlertsRoute"));
@@ -35,6 +37,7 @@ export type RouteId =
   | "positions"
   | "planner"
   | "tax"
+  | "research"
   | "imports"
   | "brokers"
   | "alerts"
@@ -44,6 +47,7 @@ export type RouteId =
 export interface RouteProps {
   snapshot: PortfolioSnapshot;
   actionPlan: ActionPlan;
+  accessToken?: string;
 }
 
 const routes = [
@@ -51,6 +55,7 @@ const routes = [
   { id: "positions", label: "Positions", icon: TableProperties },
   { id: "planner", label: "Planner", icon: ListChecks },
   { id: "tax", label: "Tax Lab", icon: FlaskConical },
+  { id: "research", label: "Research", icon: SearchCheck },
   { id: "imports", label: "Imports", icon: Import },
   { id: "brokers", label: "Brokers", icon: Cable },
   { id: "alerts", label: "Alerts", icon: Bell },
@@ -58,11 +63,12 @@ const routes = [
   { id: "settings", label: "Settings", icon: Settings }
 ] as const satisfies ReadonlyArray<{ id: RouteId; label: string; icon: typeof LayoutDashboard }>;
 
-function Screen({ route, snapshot, actionPlan }: RouteProps & { route: RouteId }) {
-  const props = { snapshot, actionPlan };
+function Screen({ route, snapshot, actionPlan, accessToken }: RouteProps & { route: RouteId }) {
+  const props = { snapshot, actionPlan, accessToken };
   if (route === "positions") return <PositionsRoute {...props} />;
   if (route === "planner") return <ActionPlannerRoute {...props} />;
   if (route === "tax") return <TaxLabRoute {...props} />;
+  if (route === "research") return <ResearchRoute {...props} />;
   if (route === "imports") return <ImportsRoute {...props} />;
   if (route === "brokers") return <BrokerConnectionsRoute {...props} />;
   if (route === "alerts") return <AlertsRoute {...props} />;
@@ -173,6 +179,7 @@ export function App() {
   const [auth, setAuth] = useState<AuthState>({ configured: false, session: null, user: null });
   const snapshot = workspaceState.snapshot;
   const actionPlan = workspaceState.actionPlan;
+  const accessToken = auth.session?.access_token;
   const activeLabel = routes.find((route) => route.id === activeRoute)?.label ?? "Portfolio";
 
   useEffect(() => {
@@ -250,7 +257,7 @@ export function App() {
         <main>
           {workspaceState.warning ? <div className="notice-bar">{workspaceState.warning}</div> : null}
           <Suspense fallback={<div className="loading-panel">Loading portfolio workspace...</div>}>
-            <Screen route={activeRoute} snapshot={snapshot} actionPlan={actionPlan} />
+            <Screen route={activeRoute} snapshot={snapshot} actionPlan={actionPlan} accessToken={accessToken} />
           </Suspense>
         </main>
       </div>

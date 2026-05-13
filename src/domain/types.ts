@@ -257,3 +257,191 @@ export interface ActionPlan {
   };
   actions: ActionItem[];
 }
+
+export type ResearchConfidence = "low" | "medium" | "high";
+export type ResearchRunStatus =
+  | "fallback"
+  | "partial"
+  | "complete"
+  | "partial+ai"
+  | "complete+ai";
+
+export interface ResearchSubject {
+  id?: string;
+  userId?: string;
+  symbol: string;
+  name: string;
+  isin?: string;
+  exchange?: string;
+  currency?: CurrencyCode;
+  instrumentType: "stock" | "etf" | "fund" | string;
+  providerSymbols?: Record<string, string>;
+  issuerUrls?: Array<{ url: string; name?: string }>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ResearchSourceStatus {
+  sourceType: string;
+  sourceName: string;
+  status: "available" | "partial" | "not-found" | "not-configured" | "premium-key-missing" | "provider-unavailable" | "source-error" | string;
+  configured: boolean;
+  freshness: string;
+  premium: boolean;
+  message?: string;
+  checkedAt?: string;
+}
+
+export interface ResearchSourceSnapshot {
+  id: string;
+  runId?: string;
+  sourceType: string;
+  sourceName: string;
+  status: string;
+  url?: string;
+  fetchedAt?: string;
+  sourceDate?: string;
+  freshness?: string;
+  contentHash?: string;
+  metadata?: Record<string, unknown>;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export interface ResearchEvidence {
+  id: string;
+  runId?: string;
+  sourceSnapshotId?: string;
+  category: string;
+  claim: string;
+  evidence: string;
+  sourceUrl?: string;
+  sourceName: string;
+  sourceDate?: string;
+  confidence: ResearchConfidence;
+  thesisImpact: string;
+  sourceEvidenceIds: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ResearchMetric {
+  id?: string;
+  runId?: string;
+  category: string;
+  label: string;
+  value: number | null;
+  textValue?: string;
+  unit?: string;
+  period?: string;
+  sourceEvidenceIds: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ResearchEvent {
+  id: string;
+  runId?: string;
+  type: string;
+  title: string;
+  summary?: string;
+  occurredAt?: string;
+  sourceName: string;
+  sourceUrl?: string;
+  severity: "low" | "medium" | "high" | string;
+  directness: number;
+  riskScore: number;
+  affectedCountries: string[];
+  affectedSectors: string[];
+  sourceEvidenceIds: string[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ResearchAiPayload {
+  provider?: string;
+  model?: string;
+  summary?: string;
+  sections?: Record<string, { title: string; bullets: string[] }>;
+  contradictionCheck?: {
+    summary?: string;
+    invalidatingEvidence?: string[];
+    keyQuestions?: string[];
+    sourceEvidenceIds?: string[];
+  };
+  scenarioGenerator?: {
+    summary?: string;
+    cases?: Array<Record<string, unknown>>;
+  };
+  assumptionCritic?: {
+    summary?: string;
+    drivers?: Array<Record<string, unknown>>;
+  };
+  reportNarrative?: {
+    title?: string;
+    memo?: string;
+  };
+  watchRuleGenerator?: {
+    summary?: string;
+    suggestions?: Array<Record<string, unknown>>;
+  };
+  errors?: string[];
+}
+
+export interface ResearchCopilotThread {
+  id: string;
+  userId?: string;
+  runId?: string;
+  subjectId?: string;
+  title: string;
+  status: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ResearchCopilotMessage {
+  id: string;
+  userId?: string;
+  threadId: string;
+  runId?: string;
+  role: "user" | "assistant";
+  content: string;
+  sourceEvidenceIds: string[];
+  sourceRequests: Array<{ type: string; reason: string }>;
+  metadata?: Record<string, unknown>;
+  createdAt?: string;
+}
+
+export interface ResearchRun {
+  id: string;
+  userId?: string;
+  subjectId: string;
+  targetSubjectId?: string;
+  subject: ResearchSubject;
+  targetSubject?: ResearchSubject | null;
+  thesis?: string;
+  status: ResearchRunStatus | string;
+  generatedAt: string;
+  completedAt?: string;
+  horizon?: string;
+  sourcePolicy?: Record<string, unknown>;
+  coverage: ResearchSourceStatus[];
+  summary: {
+    title?: string;
+    nonAdvisory?: boolean;
+    sections?: Record<string, { title: string; bullets: string[] }>;
+    topRisks?: ResearchEvent[];
+    sourceCounts?: Record<string, number>;
+    aiSummary?: string;
+  };
+  aiPayload?: ResearchAiPayload;
+  sourceErrors: string[];
+  sourceSnapshots?: ResearchSourceSnapshot[];
+  evidence?: ResearchEvidence[];
+  metrics?: ResearchMetric[];
+  events?: ResearchEvent[];
+  copilotThreads?: ResearchCopilotThread[];
+}
+
+export interface ResearchStatus {
+  scope: string[];
+  advisoryMode: "non-advisory" | string;
+  configured: Record<string, unknown>;
+  capabilities: Record<string, string>;
+}
