@@ -214,7 +214,7 @@ export function App() {
   const [workspaceState, setWorkspaceState] = useState<PortfolioWorkspace>({
     snapshot: initialSnapshot,
     actionPlan: initialActionPlan,
-    source: "local-demo"
+    source: "local-empty"
   });
   const [isLoadingWorkspace, setIsLoadingWorkspace] = useState(true);
   const [auth, setAuth] = useState<AuthState>({ configured: false, session: null, user: null });
@@ -222,6 +222,10 @@ export function App() {
   const actionPlan = workspaceState.actionPlan;
   const accessToken = auth.session?.access_token;
   const activeRouteMeta = routes.find((route) => route.id === activeRoute) ?? routes[0];
+  const workspaceLabel = workspaceState.source === "api"
+    ? "Live"
+    : workspaceState.source === "sample-demo" ? "Sample" : "Setup";
+  const statusTone = snapshot.openIssueCount > 0 ? "warning" : workspaceState.source === "local-empty" ? "muted" : "ok";
 
   async function refreshWorkspace(token = accessToken) {
     setIsLoadingWorkspace(true);
@@ -339,18 +343,32 @@ export function App() {
           <AuthControl auth={auth} onAuthUpdate={setAuth} />
         </header>
         <header className="topbar">
-          <div>
-            <p className="eyebrow">Germany-first portfolio architecture</p>
+          <div className="topbar-title">
+            <p className="eyebrow">{activeRouteMeta.group}</p>
             <h1>{activeRouteMeta.label}</h1>
             <p className="topbar-subtitle">{activeRouteMeta.description}</p>
           </div>
-          <div className="status-strip" aria-label="Portfolio status">
-            <span>{isLoadingWorkspace ? "Loading" : workspaceState.source}</span>
-            <span>{snapshot.openIssueCount} issues</span>
-            <span>{actionPlan.actions.length} ranked actions</span>
-            <span>{new Date(snapshot.asOf).toLocaleString("de-DE")}</span>
+          <div className="topbar-right">
+            <div className="status-strip" aria-label="Portfolio status">
+              <span className={`status-card ${statusTone}`}>
+                <small>Workspace</small>
+                <strong>{isLoadingWorkspace ? "Loading" : workspaceLabel}</strong>
+              </span>
+              <span className={`status-card ${snapshot.openIssueCount > 0 ? "warning" : "ok"}`}>
+                <small>Issues</small>
+                <strong>{snapshot.openIssueCount}</strong>
+              </span>
+              <span className="status-card">
+                <small>Actions</small>
+                <strong>{actionPlan.actions.length}</strong>
+              </span>
+              <span className="status-card timestamp">
+                <small>As of</small>
+                <strong>{new Date(snapshot.asOf).toLocaleString("de-DE")}</strong>
+              </span>
+            </div>
+            <AuthControl auth={auth} onAuthUpdate={setAuth} />
           </div>
-          <AuthControl auth={auth} onAuthUpdate={setAuth} />
         </header>
         <main>
           {workspaceState.warning ? <div className="notice-bar">{workspaceState.warning}</div> : null}

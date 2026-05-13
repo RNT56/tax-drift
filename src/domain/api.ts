@@ -15,7 +15,7 @@ import type {
 export interface PortfolioWorkspace {
   snapshot: PortfolioSnapshot;
   actionPlan: ActionPlan;
-  source: "api" | "local-demo";
+  source: "api" | "local-empty" | "sample-demo";
   warning?: string;
 }
 
@@ -181,8 +181,10 @@ export const emptyPortfolioInput: PortfolioInput = {
   }
 };
 
-const localSnapshot = derivePortfolioSnapshot(demoPortfolioInput);
-const localActionPlan = generateActionPlan(localSnapshot);
+const emptySnapshot = derivePortfolioSnapshot(emptyPortfolioInput);
+const emptyActionPlan = generateActionPlan(emptySnapshot);
+const sampleSnapshot = derivePortfolioSnapshot(demoPortfolioInput);
+const sampleActionPlan = generateActionPlan(sampleSnapshot);
 
 function isPortfolioSnapshot(value: unknown): value is PortfolioSnapshot {
   const snapshot = value as PortfolioSnapshot;
@@ -264,22 +266,28 @@ async function getPlainJson<T>(url: string): Promise<T> {
   return payload;
 }
 
-function localWorkspace(warning?: string): PortfolioWorkspace {
+function localWorkspace(warning?: string, useSample = false): PortfolioWorkspace {
   return {
-    snapshot: localSnapshot,
-    actionPlan: localActionPlan,
-    source: "local-demo",
+    snapshot: useSample ? sampleSnapshot : emptySnapshot,
+    actionPlan: useSample ? sampleActionPlan : emptyActionPlan,
+    source: useSample ? "sample-demo" : "local-empty",
     warning
   };
 }
 
 export async function loadPortfolioWorkspace(accessToken?: string): Promise<PortfolioWorkspace> {
-  const demoQuery = accessToken || import.meta.env.VITE_PORTFOLIO_API_DEMO === "false" ? "" : "?demo=1";
+  const explicitDemoRequested = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("demo") === "1";
+  const demoQuery = !accessToken && explicitDemoRequested ? "?demo=1" : "";
   try {
     const portfolio = await getJson<{ snapshot: PortfolioSnapshot }>(`/api/portfolio${demoQuery}`, accessToken);
     const apiSnapshot = portfolio.data?.snapshot;
     if (!portfolio.ok || !isPortfolioSnapshot(apiSnapshot)) {
-      return localWorkspace("Portfolio API returned an incomplete snapshot; using local demo data.");
+      return localWorkspace(
+        explicitDemoRequested
+          ? "Portfolio API returned an incomplete sample snapshot; using bundled sample data."
+          : "Portfolio API returned an incomplete snapshot. Sign in or configure the API to load portfolio data.",
+        explicitDemoRequested
+      );
     }
 
     const separator = demoQuery ? "&" : "?";
@@ -294,7 +302,13 @@ export async function loadPortfolioWorkspace(accessToken?: string): Promise<Port
       warning: action.ok && isActionPlan(apiActionPlan) ? undefined : "Action-plan API unavailable; generated locally."
     };
   } catch (error) {
-    return localWorkspace(error instanceof Error ? error.message : "Portfolio API unavailable.");
+    const detail = error instanceof Error ? error.message : "Portfolio API unavailable.";
+    return localWorkspace(
+      explicitDemoRequested
+        ? `${detail}; using bundled sample data.`
+        : `${detail}. Sign in or configure the API to load portfolio data.`,
+      explicitDemoRequested
+    );
   }
 }
 
