@@ -1,13 +1,13 @@
 {
-  "name": "TaxSwitch Investment Calculator",
+  "name": "TaxSwitch Portfolio Workspace",
   "short_name": "TaxSwitch",
-  "description": "A mobile-first tax-aware stock rebalance calculator with multi-lot support, partial sells, FX handling and portfolio rebalancing.",
+  "description": "A unified German tax-aware portfolio workspace for holdings, market data, decisions, imports, broker sync, alerts, and reports.",
   "id": "/",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f4f7fb",
-  "theme_color": "#101626",
+  "background_color": "#f5f6f1",
+  "theme_color": "#102017",
   "orientation": "any",
   "categories": ["finance", "utilities"],
   "icons": [

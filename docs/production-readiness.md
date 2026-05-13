@@ -2,8 +2,8 @@
 
 ## Rollout Controls
 
-- Keep `/` on the legacy calculator until the React portfolio workspace has parity for every existing calculator workflow.
-- Ship `/portfolio.html` behind the `PORTFOLIO_DEMO_MODE` and broker-linking feature flags first.
+- Keep `/` on the unified React portfolio workspace.
+- Ship new production capabilities behind `PORTFOLIO_DEMO_MODE` and broker-linking feature flags first.
 - Enable SnapTrade-compatible linking only after server-side token encryption and provider webhooks are configured.
 - Run Supabase migrations in staging before production with `npm run supabase:push`.
 - Keep broker integrations read-only. The provider adapter must not add order placement, order preview, or execution methods.
@@ -14,7 +14,7 @@
 - Keep `DATA_ENCRYPTION_KEY` configured before enabling broker connection persistence; provider tokens are encrypted with AES-GCM server-side.
 - Never log raw authorization headers, cookies, broker credentials, tokens, or imported broker document contents.
 - Use Supabase Auth for private portfolio endpoints. Netlify Identity and API tokens are migration fallbacks only.
-- Keep the portfolio CSP strict. The legacy calculator still allows inline script until it is fully migrated.
+- Keep the portfolio CSP strict.
 - Rotate `DATA_ENCRYPTION_KEY`, provider keys, and API tokens with a maintenance window and audit event.
 
 ## Privacy and GDPR
@@ -47,10 +47,10 @@
 - `npm run test:e2e -- --project=chromium`
 - `npm run supabase:status`
 - `npx netlify build`
-- Open `/portfolio.html` on desktop and mobile widths.
+- Open `/`, `/assets`, `/data`, `/decisions`, and `/planner` on desktop and mobile widths.
 - Verify `/api/health`, `/api/portfolio?demo=1`, `/api/action-plan?demo=1`, `/api/broker-connections?demo=1`.
 - Verify authenticated `/api/broker-sync` against a staging SnapTrade user before enabling broker sync in production.
 - Verify authenticated `/api/portfolio-import` persists reconciliation rows before allowing import commit flows.
 - Verify `/api/portfolio-report?type=decision_memo&format=html&demo=1`.
 - Confirm no broker trading endpoints exist.
-- Confirm CSP for `/portfolio.html` does not include `unsafe-inline`.
+- Confirm CSP for the app shell does not include `unsafe-inline`.

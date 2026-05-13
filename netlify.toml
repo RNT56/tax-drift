@@ -8,18 +8,13 @@
   external_node_modules = ["@napi-rs/canvas"]
 
 [[redirects]]
-  from = "/portfolio"
-  to = "/portfolio.html"
-  status = 200
-
-[[redirects]]
-  from = "/portfolio/*"
-  to = "/portfolio.html"
-  status = 200
-
-[[redirects]]
   from = "/api/portfolio"
   to = "/.netlify/functions/portfolio"
+  status = 200
+
+[[redirects]]
+  from = "/api/portfolio-manual"
+  to = "/.netlify/functions/portfolio-manual"
   status = 200
 
 [[redirects]]
@@ -53,8 +48,43 @@
   status = 200
 
 [[redirects]]
+  from = "/api/import-parse"
+  to = "/.netlify/functions/import-parse"
+  status = 200
+
+[[redirects]]
+  from = "/api/import-commit"
+  to = "/.netlify/functions/import-commit"
+  status = 200
+
+[[redirects]]
+  from = "/api/alerts"
+  to = "/.netlify/functions/alerts"
+  status = 200
+
+[[redirects]]
   from = "/api/health"
   to = "/.netlify/functions/health"
+  status = 200
+
+[[redirects]]
+  from = "/api/search-symbols"
+  to = "/.netlify/functions/search-symbols"
+  status = 200
+
+[[redirects]]
+  from = "/api/get-price"
+  to = "/.netlify/functions/get-price"
+  status = 200
+
+[[redirects]]
+  from = "/api/get-history"
+  to = "/.netlify/functions/get-history"
+  status = 200
+
+[[redirects]]
+  from = "/api/get-fx-rate"
+  to = "/.netlify/functions/get-fx-rate"
   status = 200
 
 [[redirects]]
@@ -91,22 +121,6 @@
     X-Content-Type-Options = "nosniff"
     X-Frame-Options = "DENY"
     Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
-
-[[headers]]
-  for = "/portfolio.html"
-  [headers.values]
-    Cache-Control = "public, max-age=0, must-revalidate"
-    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; frame-src 'none'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'; upgrade-insecure-requests"
-    Referrer-Policy = "no-referrer"
-    X-Content-Type-Options = "nosniff"
-    X-Frame-Options = "DENY"
-    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"
-
-[[headers]]
-  for = "/sw.js"
-  [headers.values]
-    Cache-Control = "no-cache"
-    Service-Worker-Allowed = "/"
 
 [[headers]]
   for = "/icon-*.png"

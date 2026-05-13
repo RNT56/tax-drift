@@ -1,30 +1,29 @@
-# TaxSwitch - Portfolio Command Center and Tax Calculator
+# TaxSwitch - Portfolio Workspace
 
-A Germany-first portfolio command center plus the original mobile-first calculator for evaluating taxable sell/rebuy, stock-switch and risk-aware trade decisions.
+TaxSwitch is one Germany-first portfolio workspace for taxable sell/rebuy analysis, asset selection, FIFO basis, broker/import data, portfolio decisions, alerts, reports and research.
 
-The legacy calculator remains available at `/`. The new React/Vite portfolio workspace is available at `/portfolio.html` and focuses on read-only broker data, portfolio data quality, drift, German tax exposure and ranked next actions. TaxSwitch does not expose broker trade execution endpoints.
+The public app now runs from `/` with direct workspace URLs such as `/assets`, `/positions`, `/data`, `/decisions`, `/planner`, `/tax`, `/imports`, `/connections`, `/alerts`, `/reports` and `/settings`. TaxSwitch does not expose broker trade execution endpoints.
 
 ## What is included
 
-- Mobile-first calculator UI
-- Blank generic inputs with example placeholders only
+- Unified React + Vite + TypeScript multi-page workspace
+- Blank generic inputs with example placeholders only where manual data entry is needed
 - German tax preset at `26.375%`
 - German detailed tax mode with saver allowance, church tax, loss pots, ETF partial exemptions, foreign tax credits, prior taxed Vorabpauschale and FIFO lots
 - Locale-friendly numeric parsing: `163,26` and `163.26` both work
 - Dynamic calculation currency field
-- Optional stock / ETF / index search
+- Stock / ETF / index / crypto / FX search
 - Optional multi-provider latest quote, asset snapshot and history through Netlify Functions
 - FX-separated calculations for position currency, tax/base currency, stock return, FX return and combined tax-currency outcome
 - Multi-lot support with date, shares, unit cost, fees, currency, buy FX and sale-order assumptions
-- Decision Lab for scenario analysis, portfolio risk, assumption quality, tax-loss harvesting, ETF/fund assumptions, evidence memos, watch rules and report output
+- Decision workspace for scenario analysis, portfolio risk, assumption quality, tax-loss harvesting, ETF/fund assumptions, evidence memos, watch rules and report output
 - Probability-weighted bull/base/bear/recession/rate-cut/no-growth/multiple-compression cases plus seeded Monte Carlo sensitivity
 - Workspace schema v2 for decision cases, risk profile, research memos, watch rules, exposure and assumptions
 - Local fallback symbol catalog if no API key is configured
 - No external fonts or market-data calls from the browser; Supabase Auth is the production auth target
 - Netlify-ready `netlify.toml`
 - Security headers and SPA fallback redirect
-- React + Vite + TypeScript portfolio workspace at `/portfolio.html`
-- Route-level portfolio screens for Portfolio, Positions, Action Planner, Tax Lab, Imports, Broker Connections, Alerts, Reports and Settings
+- Route-level screens for Overview, Assets, Decisions, Planner, Positions, Data, Imports, Connections, Tax, Research, Alerts, Reports and Settings
 - Typed portfolio domain model for accounts, broker connections, holdings, FIFO tax lots, cash, targets, snapshots, action plans, sync runs and data-quality issues
 - Supabase/Postgres migrations in `supabase/migrations`
 - Standardized new API response envelope: `{ ok, data, error, meta }`
@@ -145,14 +144,14 @@ SnapTrade account data uses read-only API surfaces: connection portal login, acc
 
 ## Local development
 
-The legacy calculator is still available at `/`. The portfolio workspace is served by Vite at `/portfolio.html`. Netlify Functions work through Netlify Dev or a deployed Netlify site.
+The unified portfolio workspace is served by Vite at `/`. Netlify Functions work through Netlify Dev or a deployed Netlify site.
 
 ```bash
 npm run check
 npm run dev:vite
 ```
 
-Then open `http://127.0.0.1:5173/portfolio.html`.
+Then open `http://127.0.0.1:5173/`.
 
 For Netlify Functions and Supabase locally:
 
@@ -179,8 +178,10 @@ The GitHub Actions workflow runs the full check suite plus Playwright Chromium s
 
 ```text
 index.html
-styles.css
-app.js
+portfolio.html
+src/App.tsx
+src/routes/
+src/components/
 symbol-catalog.js
 site.webmanifest
 netlify.toml
@@ -193,8 +194,11 @@ netlify/functions/research-memo.js
 netlify/lib/fallback-symbols.js
 netlify/lib/market-data-providers.js
 netlify/lib/research-sources.js
+app-core.js
 app-decision.js
-app-research.js
+app-ledger.js
+app-workspace.js
+tax-germany.js
 ```
 
 ## API flow
@@ -336,7 +340,7 @@ It includes:
 
 ## Research sources
 
-The portfolio app includes a dedicated Research workspace at `/portfolio.html`. It stores durable research runs, source snapshots, evidence, normalized metrics, events and copilot messages in Postgres/Supabase tables. The legacy research memo path remains available for the calculator.
+The app includes a dedicated Research workspace at `/research`. It stores durable research runs, source snapshots, evidence, normalized metrics, events and copilot messages in Postgres/Supabase tables.
 
 Research uses deterministic source collection and schema validation before AI synthesis. It currently supports:
 
@@ -406,12 +410,12 @@ For a free/local-only workflow, use `npm run supabase:start` and skip production
 
 - local and signed-in workspaces
 - encrypted backend workspace/import/report/alert storage
-- generic CSV import for transaction histories and Depot position snapshots
+- generic CSV import for transaction histories and portfolio position snapshots
 - broker detection for Trade Republic, Scalable/Baader, IBKR, Consorsbank, comdirect/Commerzbank, DKB, ING, flatex, finanzen.net zero, smartbroker, S-Broker and maxblue/Deutsche Bank
-- backend text-PDF parsing for supported broker confirmations and textual Depot/portfolio snapshots
+- backend text-PDF parsing for supported broker confirmations and textual portfolio snapshots
 - no-key local OCR fallback for scanned PDFs via PDF.js page rendering and Tesseract, with confidence diagnostics and review warnings
-- FIFO lot accounting from imported transactions, with snapshot imports materialized as Depot holdings when no transaction lots are available
-- dedicated Depot overview with broker/account grouping, multi-source import materialization and adapter status
+- FIFO lot accounting from imported transactions, with snapshot imports materialized as holdings when no transaction lots are available
+- unified portfolio data workspace with broker/account grouping, multi-source import materialization and adapter status
 - German detailed tax breakdown
 - portfolio positions, targets, scenario comparison and deterministic optimizer
 - CSV/JSON/HTML audit reports

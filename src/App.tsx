@@ -1,8 +1,12 @@
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   Bell,
+  ChartCandlestick,
   BriefcaseBusiness,
   Cable,
+  ChevronRight,
+  DatabaseZap,
+  GitCompareArrows,
   FileText,
   FlaskConical,
   Import,
@@ -15,6 +19,7 @@ import {
   Settings,
   TableProperties
 } from "lucide-react";
+import { CustomSelect } from "./components/CustomSelect";
 import { generateActionPlan } from "./domain/action-planner";
 import { emptyPortfolioInput, loadPortfolioWorkspace, type PortfolioWorkspace } from "./domain/api";
 import { getAuthState, onAuthChange, signIn, signOut, signUp, type AuthState } from "./domain/auth";
@@ -22,6 +27,9 @@ import { derivePortfolioSnapshot } from "./domain/portfolio";
 import type { ActionPlan, PortfolioSnapshot } from "./domain/types";
 
 const PortfolioCommandCenter = lazy(() => import("./routes/PortfolioCommandCenter"));
+const MarketRoute = lazy(() => import("./routes/MarketRoute"));
+const PortfolioDataRoute = lazy(() => import("./routes/PortfolioDataRoute"));
+const DecisionLabRoute = lazy(() => import("./routes/DecisionLabRoute"));
 const PositionsRoute = lazy(() => import("./routes/PositionsRoute"));
 const ActionPlannerRoute = lazy(() => import("./routes/ActionPlannerRoute"));
 const TaxLabRoute = lazy(() => import("./routes/TaxLabRoute"));
@@ -33,7 +41,10 @@ const ReportsRoute = lazy(() => import("./routes/ReportsRoute"));
 const SettingsRoute = lazy(() => import("./routes/SettingsRoute"));
 
 export type RouteId =
-  | "portfolio"
+  | "overview"
+  | "assets"
+  | "data"
+  | "decision"
   | "positions"
   | "planner"
   | "tax"
@@ -48,23 +59,49 @@ export interface RouteProps {
   snapshot: PortfolioSnapshot;
   actionPlan: ActionPlan;
   accessToken?: string;
+  onWorkspaceRefresh: () => Promise<void>;
 }
 
 const routes = [
-  { id: "portfolio", label: "Portfolio", icon: LayoutDashboard },
-  { id: "positions", label: "Positions", icon: TableProperties },
-  { id: "planner", label: "Planner", icon: ListChecks },
-  { id: "tax", label: "Tax Lab", icon: FlaskConical },
-  { id: "research", label: "Research", icon: SearchCheck },
-  { id: "imports", label: "Imports", icon: Import },
-  { id: "brokers", label: "Brokers", icon: Cable },
-  { id: "alerts", label: "Alerts", icon: Bell },
-  { id: "reports", label: "Reports", icon: FileText },
-  { id: "settings", label: "Settings", icon: Settings }
-] as const satisfies ReadonlyArray<{ id: RouteId; label: string; icon: typeof LayoutDashboard }>;
+  { id: "overview", label: "Overview", path: "/", group: "Command", description: "Portfolio status and ranked next actions", icon: LayoutDashboard },
+  { id: "assets", label: "Assets", path: "/assets", group: "Command", description: "Search, quotes, charts, and switch math", icon: ChartCandlestick },
+  { id: "decision", label: "Decisions", path: "/decisions", group: "Command", description: "Hold, sell, rebuy, switch, and cash scenarios", icon: GitCompareArrows },
+  { id: "planner", label: "Planner", path: "/planner", group: "Command", description: "Constrained action planning", icon: ListChecks },
+  { id: "positions", label: "Positions", path: "/positions", group: "Portfolio Data", description: "Holdings, lots, basis, and quality", icon: TableProperties },
+  { id: "data", label: "Data", path: "/data", group: "Portfolio Data", description: "Manual holdings, cash, targets, and FIFO inputs", icon: DatabaseZap },
+  { id: "imports", label: "Imports", path: "/imports", group: "Portfolio Data", description: "Broker files and reconciliation queues", icon: Import },
+  { id: "brokers", label: "Connections", path: "/connections", group: "Portfolio Data", description: "Broker connections and sync controls", icon: Cable },
+  { id: "tax", label: "Tax", path: "/tax", group: "Intelligence", description: "German tax lots, allowances, and loss pots", icon: FlaskConical },
+  { id: "research", label: "Research", path: "/research", group: "Intelligence", description: "Cited research runs and copilot", icon: SearchCheck },
+  { id: "alerts", label: "Alerts", path: "/alerts", group: "Operations", description: "Portfolio signal rules", icon: Bell },
+  { id: "reports", label: "Reports", path: "/reports", group: "Operations", description: "Exports and decision memos", icon: FileText },
+  { id: "settings", label: "Settings", path: "/settings", group: "Operations", description: "Account, privacy, and local data", icon: Settings }
+] as const satisfies ReadonlyArray<{
+  id: RouteId;
+  label: string;
+  path: string;
+  group: "Command" | "Portfolio Data" | "Intelligence" | "Operations";
+  description: string;
+  icon: typeof LayoutDashboard;
+}>;
 
-function Screen({ route, snapshot, actionPlan, accessToken }: RouteProps & { route: RouteId }) {
-  const props = { snapshot, actionPlan, accessToken };
+const routeGroups = ["Command", "Portfolio Data", "Intelligence", "Operations"] as const;
+
+function routeFromPath(pathname: string): RouteId {
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  if (normalized === "/portfolio" || normalized === "/portfolio.html" || normalized === "/overview") return "overview";
+  return routes.find((route) => route.path === normalized)?.id || "overview";
+}
+
+function routePath(routeId: RouteId): string {
+  return routes.find((route) => route.id === routeId)?.path || "/";
+}
+
+function Screen({ route, snapshot, actionPlan, accessToken, onWorkspaceRefresh }: RouteProps & { route: RouteId }) {
+  const props = { snapshot, actionPlan, accessToken, onWorkspaceRefresh };
+  if (route === "assets") return <MarketRoute {...props} />;
+  if (route === "data") return <PortfolioDataRoute {...props} />;
+  if (route === "decision") return <DecisionLabRoute {...props} />;
   if (route === "positions") return <PositionsRoute {...props} />;
   if (route === "planner") return <ActionPlannerRoute {...props} />;
   if (route === "tax") return <TaxLabRoute {...props} />;
@@ -167,7 +204,7 @@ function AuthControl({
 }
 
 export function App() {
-  const [activeRoute, setActiveRoute] = useState<RouteId>("portfolio");
+  const [activeRoute, setActiveRoute] = useState<RouteId>(() => routeFromPath(window.location.pathname));
   const initialSnapshot = useMemo(() => derivePortfolioSnapshot(emptyPortfolioInput), []);
   const initialActionPlan = useMemo(() => generateActionPlan(initialSnapshot), [initialSnapshot]);
   const [workspaceState, setWorkspaceState] = useState<PortfolioWorkspace>({
@@ -180,7 +217,16 @@ export function App() {
   const snapshot = workspaceState.snapshot;
   const actionPlan = workspaceState.actionPlan;
   const accessToken = auth.session?.access_token;
-  const activeLabel = routes.find((route) => route.id === activeRoute)?.label ?? "Portfolio";
+  const activeRouteMeta = routes.find((route) => route.id === activeRoute) ?? routes[0];
+
+  async function refreshWorkspace(token = accessToken) {
+    setIsLoadingWorkspace(true);
+    try {
+      setWorkspaceState(await loadPortfolioWorkspace(token));
+    } finally {
+      setIsLoadingWorkspace(false);
+    }
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -201,50 +247,87 @@ export function App() {
 
   useEffect(() => onAuthChange((nextAuth) => {
     setAuth(nextAuth);
-    setIsLoadingWorkspace(true);
-    loadPortfolioWorkspace(nextAuth.session?.access_token)
-      .then(setWorkspaceState)
-      .finally(() => setIsLoadingWorkspace(false));
+    refreshWorkspace(nextAuth.session?.access_token);
   }), []);
+
+  useEffect(() => {
+    function syncFromLocation() {
+      setActiveRoute(routeFromPath(window.location.pathname));
+    }
+
+    window.addEventListener("popstate", syncFromLocation);
+    return () => window.removeEventListener("popstate", syncFromLocation);
+  }, []);
+
+  function navigate(routeId: RouteId) {
+    const nextPath = routePath(routeId);
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+    setActiveRoute(routeId);
+  }
 
   return (
     <div className="app-shell">
       <aside className="sidebar" aria-label="TaxSwitch navigation">
-        <a className="brand" href="/portfolio.html" aria-label="TaxSwitch Portfolio Command Center">
+        <a className="brand" href="/" aria-label="TaxSwitch workspace" onClick={(event) => { event.preventDefault(); navigate("overview"); }}>
           <BriefcaseBusiness size={24} aria-hidden="true" />
           <span>
             <strong>TaxSwitch</strong>
-            <small>Portfolio</small>
+            <small>Unified portfolio workspace</small>
           </span>
         </a>
         <nav className="nav-list">
-          {routes.map((route) => {
-            const Icon = route.icon;
-            const isActive = route.id === activeRoute;
-            return (
-              <button
-                key={route.id}
-                type="button"
-                className={isActive ? "nav-item active" : "nav-item"}
-                onClick={() => setActiveRoute(route.id)}
-                aria-current={isActive ? "page" : undefined}
-                aria-label={route.label}
-              >
-                <Icon size={18} aria-hidden="true" />
-                <span>{route.label}</span>
-              </button>
-            );
-          })}
+          {routeGroups.map((group) => (
+            <section className="nav-section" key={group} aria-label={group}>
+              <p className="nav-group-title">{group}</p>
+              {routes.filter((route) => route.group === group).map((route) => {
+                const Icon = route.icon;
+                const isActive = route.id === activeRoute;
+                return (
+                  <a
+                    key={route.id}
+                    href={route.path}
+                    className={isActive ? "nav-item active" : "nav-item"}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      navigate(route.id);
+                    }}
+                    aria-current={isActive ? "page" : undefined}
+                    aria-label={`${route.label}: ${route.description}`}
+                  >
+                    <Icon size={18} aria-hidden="true" />
+                    <span>{route.label}</span>
+                    <ChevronRight className="nav-chevron" size={15} aria-hidden="true" />
+                  </a>
+                );
+              })}
+            </section>
+          ))}
         </nav>
-        <a className="legacy-link" href="/" title="Open the legacy calculator">
-          Legacy calculator
-        </a>
       </aside>
       <div className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Germany-first command center</p>
-            <h1>{activeLabel}</h1>
+            <p className="eyebrow">Germany-first portfolio architecture</p>
+            <h1>{activeRouteMeta.label}</h1>
+            <p className="topbar-subtitle">{activeRouteMeta.description}</p>
+          </div>
+          <div className="route-switcher">
+            <CustomSelect
+              label="Workspace"
+              value={activeRoute}
+              onChange={(value) => navigate(value as RouteId)}
+              options={routes.map((route) => {
+                const Icon = route.icon;
+                return {
+                  value: route.id,
+                  label: route.label,
+                  description: route.description,
+                  icon: <Icon size={16} aria-hidden="true" />
+                };
+              })}
+            />
           </div>
           <div className="status-strip" aria-label="Portfolio status">
             <span>{isLoadingWorkspace ? "Loading" : workspaceState.source}</span>
@@ -257,7 +340,7 @@ export function App() {
         <main>
           {workspaceState.warning ? <div className="notice-bar">{workspaceState.warning}</div> : null}
           <Suspense fallback={<div className="loading-panel">Loading portfolio workspace...</div>}>
-            <Screen route={activeRoute} snapshot={snapshot} actionPlan={actionPlan} accessToken={accessToken} />
+            <Screen key={activeRoute} route={activeRoute} snapshot={snapshot} actionPlan={actionPlan} accessToken={accessToken} onWorkspaceRefresh={() => refreshWorkspace()} />
           </Suspense>
         </main>
       </div>

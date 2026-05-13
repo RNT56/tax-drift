@@ -12,6 +12,7 @@ import {
   Send,
   ShieldAlert
 } from "lucide-react";
+import { CustomSelect } from "../components/CustomSelect";
 import { MetricTile } from "../components/MetricTile";
 import { StatusPill } from "../components/StatusPill";
 import {
@@ -440,14 +441,16 @@ export default function ResearchRoute({ snapshot, accessToken }: RouteProps) {
               <span>Name</span>
               <input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Company or fund name" />
             </label>
-            <label>
-              <span>Type</span>
-              <select value={form.instrumentType} onChange={(event) => setForm((current) => ({ ...current, instrumentType: event.target.value }))}>
-                <option value="stock">Stock</option>
-                <option value="etf">ETF</option>
-                <option value="fund">Fund</option>
-              </select>
-            </label>
+            <CustomSelect
+              label="Type"
+              value={form.instrumentType}
+              onChange={(value) => setForm((current) => ({ ...current, instrumentType: value }))}
+              options={[
+                { value: "stock", label: "Stock" },
+                { value: "etf", label: "ETF" },
+                { value: "fund", label: "Fund" }
+              ]}
+            />
             <label>
               <span>Compare</span>
               <input value={form.comparisonSymbol} onChange={(event) => setForm((current) => ({ ...current, comparisonSymbol: event.target.value.toUpperCase() }))} placeholder="Optional peer" />

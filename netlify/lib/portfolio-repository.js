@@ -558,6 +558,88 @@ function createPortfolioRepository(options = {}) {
       );
     },
 
+    async replaceTaxLotsForHolding(userId, accountId, holdingId, lots = []) {
+      await query(
+        "delete from tax_lots where user_id = $1 and account_id = $2 and holding_id = $3",
+        [userId, accountId, holdingId]
+      );
+      let rank = 1;
+      for (const lot of lots) {
+        const unitCost = normalizeMoney(lot.unitCost ?? lot.price ?? lot.unitPrice, lot.currency || "EUR");
+        const quantity = Number(lot.quantity || 0);
+        const basis = normalizeMoney(
+          lot.costBasis ?? (Number.isFinite(quantity) ? minorToNumber(unitCost) * quantity : 0),
+          unitCost.currency
+        );
+        await query(
+          `insert into tax_lots (
+             user_id, account_id, holding_id, external_lot_id, acquired_at, quantity,
+             unit_cost_currency, unit_cost_minor, unit_cost_scale,
+             cost_basis_currency, cost_basis_minor, cost_basis_scale,
+             source, fifo_rank, partial_exemption_pct, loss_pot
+           )
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+          [
+            userId,
+            accountId,
+            holdingId,
+            lot.externalId || lot.id || null,
+            lot.acquiredAt || new Date().toISOString().slice(0, 10),
+            quantity,
+            unitCost.currency,
+            unitCost.minor,
+            unitCost.scale,
+            basis.currency,
+            basis.minor,
+            basis.scale,
+            lot.source || "manual",
+            Number(lot.fifoRank || rank++),
+            lot.partialExemptionPct ?? lot.germanTax?.partialExemptionPct ?? null,
+            lot.lossPot || lot.germanTax?.lossPot || null
+          ]
+        );
+      }
+    },
+
+    async upsertTargetAllocation(userId, target) {
+      const result = await query(
+        `insert into target_allocations (
+           user_id, scope, scope_id, label, symbol, exposure_tag,
+           target_weight_pct, min_weight_pct, max_weight_pct
+         )
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         returning *`,
+        [
+          userId,
+          target.scope || "portfolio",
+          target.scopeId || null,
+          target.label || target.symbol || target.exposureTag || "Target",
+          target.symbol || null,
+          target.exposureTag || null,
+          Number(target.targetWeightPct || 0),
+          target.minWeightPct ?? null,
+          target.maxWeightPct ?? null
+        ]
+      );
+      return result.rows[0];
+    },
+
+    async deleteHolding(userId, holdingId) {
+      const result = await query(
+        "delete from holdings where user_id = $1 and id = $2 returning id",
+        [userId, holdingId]
+      );
+      return result.rowCount > 0;
+    },
+
+    async deleteTargetAllocation(userId, targetId) {
+      const result = await query(
+        "delete from target_allocations where user_id = $1 and id = $2 returning id",
+        [userId, targetId]
+      );
+      return result.rowCount > 0;
+    },
+
     async upsertTransaction(userId, provider, accountId, transaction) {
       const amount = normalizeMoney(transaction.amount ?? transaction.netAmount ?? transaction.value, transaction.currency || "EUR");
       const fees = transaction.fees === undefined ? null : normalizeMoney(transaction.fees, amount.currency);

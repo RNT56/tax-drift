@@ -5,19 +5,7 @@ import { defineConfig } from "vite";
 
 const rootDir = __dirname;
 
-const legacyFiles = [
-  "index.html",
-  "app.js",
-  "app-core.js",
-  "app-decision.js",
-  "app-ledger.js",
-  "app-research.js",
-  "app-ui.js",
-  "app-workspace.js",
-  "symbol-catalog.js",
-  "tax-germany.js",
-  "styles.css",
-  "sw.js",
+const staticFiles = [
   "site.webmanifest",
   "apple-touch-icon.png",
   "icon-192.png",
@@ -25,13 +13,13 @@ const legacyFiles = [
   "icon-maskable-512.png"
 ];
 
-function copyLegacyShell() {
+function copyStaticAssets() {
   return {
-    name: "copy-legacy-shell",
+    name: "copy-static-assets",
     closeBundle() {
       const outDir = resolve(rootDir, "dist");
       mkdirSync(outDir, { recursive: true });
-      for (const file of legacyFiles) {
+      for (const file of staticFiles) {
         const source = resolve(rootDir, file);
         const target = resolve(outDir, file);
         copyFileSync(source, target);
@@ -41,10 +29,11 @@ function copyLegacyShell() {
 }
 
 export default defineConfig({
-  plugins: [react(), copyLegacyShell()],
+  plugins: [react(), copyStaticAssets()],
   build: {
     rollupOptions: {
       input: {
+        app: resolve(rootDir, "index.html"),
         portfolio: resolve(rootDir, "portfolio.html")
       }
     }

@@ -6,6 +6,10 @@ import type { RouteProps } from "../App";
 export default function TaxLabRoute({ snapshot }: RouteProps) {
   const etfPositions = snapshot.positions.filter((item) => item.position.instrumentType === "etf");
   const lossCandidates = snapshot.positions.filter((item) => Number(item.unrealizedGain.minor) < 0);
+  const taxLots = snapshot.positions.flatMap((item) => item.position.taxLots.map((lot) => ({
+    ...lot,
+    symbol: item.position.symbol
+  })));
 
   return (
     <div className="page-grid">
@@ -13,9 +17,8 @@ export default function TaxLabRoute({ snapshot }: RouteProps) {
         <div>
           <p className="eyebrow">Germany tax depth</p>
           <h2>FIFO lots, allowance, loss pots, ETF exemptions</h2>
-          <p>TaxSwitch keeps the calculator engine available while portfolio decisions surface the German tax fields that change action rankings.</p>
+          <p>German tax assumptions are part of the same portfolio decision engine as positions, market data, action planning, reports, and alerts.</p>
         </div>
-        <a className="button-link" href="/#tax-calculator">Open calculator</a>
       </section>
 
       <section className="metric-grid">
@@ -49,18 +52,23 @@ export default function TaxLabRoute({ snapshot }: RouteProps) {
         <div className="panel">
           <div className="panel-heading">
             <div>
-              <p className="eyebrow">Scenario lab</p>
-              <h3>Plan variants to add next</h3>
+              <p className="eyebrow">Tax coverage</p>
+              <h3>Lot-level assumptions in use</h3>
             </div>
             <Calculator size={20} aria-hidden="true" />
           </div>
-          <div className="checklist">
-            <span>Max tax budget scenarios</span>
-            <span>Loss-pot offset simulation</span>
-            <span>Vorabpauschale audit export</span>
-            <span>ETF partial exemption sensitivity</span>
-            <span>Printable tax-lot decision memo</span>
-          </div>
+          {taxLots.length ? (
+            <div className="audit-grid single-column">
+              {taxLots.slice(0, 8).map((lot) => (
+                <article key={lot.id}>
+                  <strong>{lot.symbol} FIFO #{lot.fifoRank}</strong>
+                  <span>Acquired {lot.acquiredAt}</span>
+                  <span>{lot.germanTax.lossPot || "none"} loss pot</span>
+                  <span>{lot.germanTax.partialExemptionPct ? `${lot.germanTax.partialExemptionPct}% partial exemption` : "No partial exemption"}</span>
+                </article>
+              ))}
+            </div>
+          ) : <p className="empty-copy">No tax lots are loaded. Import broker data or add cost basis before tax-sensitive actions.</p>}
         </div>
       </section>
     </div>

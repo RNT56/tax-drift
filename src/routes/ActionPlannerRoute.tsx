@@ -1,12 +1,57 @@
-import { SlidersHorizontal } from "lucide-react";
+import { FormEvent, useMemo, useState } from "react";
+import { RefreshCw, SlidersHorizontal } from "lucide-react";
 import { StatusPill } from "../components/StatusPill";
-import { formatMoney, formatPct } from "../domain/money";
+import { generateConstrainedActionPlan } from "../domain/api";
+import { generateActionPlan } from "../domain/action-planner";
+import { formatMoney, formatPct, minorToNumber, money } from "../domain/money";
+import type { ActionPlan, ActionPlanConstraints } from "../domain/types";
 import type { RouteProps } from "../App";
 
-export default function ActionPlannerRoute({ actionPlan }: RouteProps) {
+function editableConstraints(actionPlan: ActionPlan) {
+  return {
+    maxTaxCost: String(minorToNumber(actionPlan.constraints.maxTaxCost)),
+    maxTurnoverPct: String(actionPlan.constraints.maxTurnoverPct),
+    minTradeValue: String(minorToNumber(actionPlan.constraints.minTradeValue)),
+    cashReserve: String(minorToNumber(actionPlan.constraints.cashReserve)),
+    taxableAccountsOnly: actionPlan.constraints.taxableAccountsOnly
+  };
+}
+
+export default function ActionPlannerRoute({ snapshot, actionPlan, accessToken }: RouteProps) {
+  const [form, setForm] = useState(() => editableConstraints(actionPlan));
+  const [serverPlan, setServerPlan] = useState<ActionPlan | null>(null);
+  const [error, setError] = useState("");
+  const [status, setStatus] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const constraints: ActionPlanConstraints = useMemo(() => ({
+    maxTaxCost: money(snapshot.baseCurrency, Number(form.maxTaxCost) || 0),
+    maxTurnoverPct: Number(form.maxTurnoverPct) || 0,
+    minTradeValue: money(snapshot.baseCurrency, Number(form.minTradeValue) || 0),
+    cashReserve: money(snapshot.baseCurrency, Number(form.cashReserve) || 0),
+    taxableAccountsOnly: form.taxableAccountsOnly
+  }), [form, snapshot.baseCurrency]);
+  const localPlan = useMemo(() => generateActionPlan(snapshot, constraints), [snapshot, constraints]);
+  const visiblePlan = serverPlan || localPlan;
+
+  async function savePlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setStatus("");
+    setIsSaving(true);
+    try {
+      const nextPlan = await generateConstrainedActionPlan(constraints, accessToken);
+      setServerPlan(nextPlan);
+      setStatus(accessToken ? "Constrained action plan generated and saved." : "Demo constrained action plan generated.");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not generate constrained action plan.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   return (
     <div className="page-grid">
-      <section className="panel">
+      <form className="panel research-form" onSubmit={savePlan}>
         <div className="panel-heading">
           <div>
             <p className="eyebrow">Optimizer constraints</p>
@@ -14,37 +59,68 @@ export default function ActionPlannerRoute({ actionPlan }: RouteProps) {
           </div>
           <SlidersHorizontal size={20} aria-hidden="true" />
         </div>
-        <div className="constraint-grid">
-          <div><span>Max tax</span><strong>{formatMoney(actionPlan.constraints.maxTaxCost)}</strong></div>
-          <div><span>Max turnover</span><strong>{actionPlan.constraints.maxTurnoverPct}%</strong></div>
-          <div><span>Min trade</span><strong>{formatMoney(actionPlan.constraints.minTradeValue)}</strong></div>
-          <div><span>Cash reserve</span><strong>{formatMoney(actionPlan.constraints.cashReserve)}</strong></div>
-          <div><span>Scope</span><strong>{actionPlan.constraints.taxableAccountsOnly ? "Taxable only" : "All accounts"}</strong></div>
+        {error ? <div className="notice-bar danger-notice">{error}</div> : null}
+        {status ? <div className="notice-bar success-notice">{status}</div> : null}
+        <div className="field-grid">
+          <label>
+            <span>Max tax cost</span>
+            <input value={form.maxTaxCost} onChange={(event) => setForm((current) => ({ ...current, maxTaxCost: event.target.value }))} inputMode="decimal" />
+          </label>
+          <label>
+            <span>Max turnover %</span>
+            <input value={form.maxTurnoverPct} onChange={(event) => setForm((current) => ({ ...current, maxTurnoverPct: event.target.value }))} inputMode="decimal" />
+          </label>
+          <label>
+            <span>Min trade</span>
+            <input value={form.minTradeValue} onChange={(event) => setForm((current) => ({ ...current, minTradeValue: event.target.value }))} inputMode="decimal" />
+          </label>
+          <label>
+            <span>Cash reserve</span>
+            <input value={form.cashReserve} onChange={(event) => setForm((current) => ({ ...current, cashReserve: event.target.value }))} inputMode="decimal" />
+          </label>
         </div>
-      </section>
+        <label className="checkbox-row">
+          <input type="checkbox" checked={form.taxableAccountsOnly} onChange={(event) => setForm((current) => ({ ...current, taxableAccountsOnly: event.target.checked }))} />
+          Taxable accounts only
+        </label>
+        <div className="button-row">
+          <button type="submit" disabled={isSaving}>
+            <RefreshCw size={16} aria-hidden="true" />
+            {isSaving ? "Generating" : "Generate constrained plan"}
+          </button>
+        </div>
+      </form>
 
       <section className="metric-grid">
         <div className="metric-tile">
           <p>Before drift</p>
-          <strong>{actionPlan.summary.beforeDriftScore.toFixed(1)} pp</strong>
+          <strong>{visiblePlan.summary.beforeDriftScore.toFixed(1)} pp</strong>
         </div>
         <div className="metric-tile positive">
           <p>After drift</p>
-          <strong>{actionPlan.summary.afterDriftScore.toFixed(1)} pp</strong>
+          <strong>{visiblePlan.summary.afterDriftScore.toFixed(1)} pp</strong>
         </div>
         <div className="metric-tile warning">
           <p>Expected turnover</p>
-          <strong>{formatMoney(actionPlan.summary.expectedTurnover)}</strong>
+          <strong>{formatMoney(visiblePlan.summary.expectedTurnover)}</strong>
         </div>
         <div className="metric-tile">
           <p>Blocked actions</p>
-          <strong>{actionPlan.summary.blockedActionCount}</strong>
+          <strong>{visiblePlan.summary.blockedActionCount}</strong>
+        </div>
+        <div className="metric-tile">
+          <p>Max tax</p>
+          <strong>{formatMoney(visiblePlan.constraints.maxTaxCost)}</strong>
+        </div>
+        <div className="metric-tile">
+          <p>Min trade</p>
+          <strong>{formatMoney(visiblePlan.constraints.minTradeValue)}</strong>
         </div>
       </section>
 
       <section className="panel">
         <div className="action-stack expanded">
-          {actionPlan.actions.map((action) => (
+          {visiblePlan.actions.map((action) => (
             <article className="action-row" key={action.id}>
               <span className="rank">#{action.rank}</span>
               <div>

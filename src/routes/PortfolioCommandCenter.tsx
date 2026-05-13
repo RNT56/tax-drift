@@ -1,4 +1,5 @@
 import { AlertTriangle, ArrowRight, BadgeEuro, ShieldCheck } from "lucide-react";
+import { AllocationBars, DriftScatter } from "../components/Charts";
 import { MetricTile } from "../components/MetricTile";
 import { StatusPill } from "../components/StatusPill";
 import { formatMoney, formatPct, minorToNumber } from "../domain/money";
@@ -7,6 +8,17 @@ import type { RouteProps } from "../App";
 export default function PortfolioCommandCenter({ snapshot, actionPlan }: RouteProps) {
   const topActions = actionPlan.actions.slice(0, 4);
   const criticalIssues = snapshot.dataQualityIssues.filter((issue) => issue.severity === "critical");
+  const allocationItems = snapshot.positions
+    .map((item) => ({
+      label: item.position.symbol,
+      value: item.marketValue,
+      weightPct: item.currentWeightPct
+    }))
+    .concat({
+      label: "Cash",
+      value: snapshot.cashValue,
+      weightPct: snapshot.totalValue ? minorToNumber(snapshot.cashValue) / Math.max(1, minorToNumber(snapshot.totalValue)) * 100 : 0
+    });
 
   return (
     <div className="page-grid">
@@ -34,6 +46,30 @@ export default function PortfolioCommandCenter({ snapshot, actionPlan }: RoutePr
         <MetricTile label="Liquidation tax" value={formatMoney(snapshot.estimatedLiquidationTax)} tone="warning" helper="German flat-tax estimate" />
         <MetricTile label="Open issues" value={snapshot.openIssueCount} tone={criticalIssues.length ? "danger" : "warning"} helper={`${snapshot.staleDataCount} stale data`} />
         <MetricTile label="Top action" value={`#${topActions[0]?.rank ?? 0}`} helper={topActions[0]?.title ?? "No action"} />
+      </section>
+
+      <section className="two-column">
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Allocation</p>
+              <h3>Where capital sits today</h3>
+            </div>
+            <ShieldCheck size={20} aria-hidden="true" />
+          </div>
+          <AllocationBars items={allocationItems} />
+        </div>
+
+        <div className="panel">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Target drift</p>
+              <h3>Current weight vs target</h3>
+            </div>
+            <ShieldCheck size={20} aria-hidden="true" />
+          </div>
+          <DriftScatter items={snapshot.drift} />
+        </div>
       </section>
 
       <section className="two-column">
