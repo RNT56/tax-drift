@@ -1,6 +1,7 @@
 import { generateActionPlan } from "./action-planner";
 import { derivePortfolioSnapshot } from "./portfolio";
 import { money } from "./money";
+import { demoPortfolioInput } from "./sample-data";
 import type {
   ActionPlan,
   ActionPlanConstraints,
@@ -180,7 +181,7 @@ export const emptyPortfolioInput: PortfolioInput = {
   }
 };
 
-const localSnapshot = derivePortfolioSnapshot(emptyPortfolioInput);
+const localSnapshot = derivePortfolioSnapshot(demoPortfolioInput);
 const localActionPlan = generateActionPlan(localSnapshot);
 
 function isPortfolioSnapshot(value: unknown): value is PortfolioSnapshot {

@@ -1,5 +1,5 @@
-import { FormEvent, useMemo, useState } from "react";
-import { Calculator, RefreshCw, SearchCheck } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { Calculator, CheckCircle2, RefreshCw, SearchCheck } from "lucide-react";
 import { HistoryLineChart } from "../components/Charts";
 import { CustomSelect } from "../components/CustomSelect";
 import { MetricTile } from "../components/MetricTile";
@@ -37,6 +37,7 @@ export default function MarketRoute({ snapshot }: RouteProps) {
   const [quote, setQuote] = useState<MarketQuote | null>(null);
   const [history, setHistory] = useState<MarketHistory | null>(null);
   const [range, setRange] = useState("1Y");
+  const [isAssetPickerOpen, setIsAssetPickerOpen] = useState(!firstPosition);
   const [isSearching, setIsSearching] = useState(false);
   const [isLoadingMarket, setIsLoadingMarket] = useState(false);
   const [error, setError] = useState("");
@@ -60,6 +61,20 @@ export default function MarketRoute({ snapshot }: RouteProps) {
     () => selectedAsset ? snapshot.positions.find((item) => item.position.symbol === selectedAsset.symbol) : undefined,
     [selectedAsset, snapshot.positions]
   );
+
+  useEffect(() => {
+    if (selectedAsset || !firstPosition) return;
+    const asset = fallbackAsset(firstPosition);
+    setSelectedAsset(asset);
+    setQuery(asset.symbol);
+    setIsAssetPickerOpen(false);
+    setCalc((current) => ({
+      ...current,
+      shares: numberInput(firstPosition.position.quantity),
+      costBasis: numberInput(minorToNumber(firstPosition.position.costBasis)),
+      currentPrice: numberInput(minorToNumber(firstPosition.position.price))
+    }));
+  }, [firstPosition, selectedAsset]);
 
   const calculation = useMemo(() => {
     const shares = Number(calc.shares);
@@ -133,6 +148,7 @@ export default function MarketRoute({ snapshot }: RouteProps) {
 
   async function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setIsAssetPickerOpen(true);
     setError("");
     setMarketStatus("");
     setIsSearching(true);
@@ -149,6 +165,8 @@ export default function MarketRoute({ snapshot }: RouteProps) {
 
   function selectAsset(asset: SymbolSearchResult) {
     setSelectedAsset(asset);
+    setQuery(asset.symbol);
+    setIsAssetPickerOpen(false);
     fillFromPosition(asset);
     void loadMarket(asset);
   }
@@ -160,6 +178,12 @@ export default function MarketRoute({ snapshot }: RouteProps) {
 
   const displayedPrice = quote?.price ?? (selectedPosition ? minorToNumber(selectedPosition.position.price) : NaN);
   const displayedCurrency = quote?.currency || selectedPosition?.position.price.currency || snapshot.baseCurrency;
+  const selectedMeta = [
+    selectedAsset?.type || selectedPosition?.position.instrumentType,
+    selectedAsset?.exchange,
+    selectedAsset?.currency || selectedPosition?.position.price.currency || snapshot.baseCurrency,
+    selectedAsset?.provider || selectedPosition?.position.source
+  ].filter(Boolean).join(" | ");
 
   return (
     <div className="page-grid">
@@ -169,16 +193,34 @@ export default function MarketRoute({ snapshot }: RouteProps) {
           <h2>{selectedAsset ? `${selectedAsset.symbol} ${selectedAsset.name || ""}` : "Search stocks, ETFs, indices, crypto, and FX"}</h2>
           <p>Use live quote/history APIs when configured, or fall back to loaded portfolio prices for tax-aware switch analysis.</p>
         </div>
-        <button className="button-link" type="button" onClick={() => loadMarket()} disabled={!selectedAsset || isLoadingMarket}>
-          <RefreshCw size={16} aria-hidden="true" />
-          {isLoadingMarket ? "Loading" : "Refresh market data"}
-        </button>
+        <div className="hero-actions">
+          <button className="button-link secondary" type="button" onClick={() => setIsAssetPickerOpen((value) => !value)}>
+            <SearchCheck size={16} aria-hidden="true" />
+            {isAssetPickerOpen ? "Close picker" : "Change asset"}
+          </button>
+          <button className="button-link" type="button" onClick={() => loadMarket()} disabled={!selectedAsset || isLoadingMarket}>
+            <RefreshCw size={16} aria-hidden="true" />
+            {isLoadingMarket ? "Loading" : "Refresh market data"}
+          </button>
+        </div>
       </section>
 
       {error ? <div className="notice-bar danger-notice">{error}</div> : null}
       {marketStatus ? <div className="notice-bar success-notice">{marketStatus}</div> : null}
 
-      <section className="two-column">
+      {selectedAsset ? (
+        <section className="selected-asset-strip" aria-label="Selected asset">
+          <CheckCircle2 size={20} aria-hidden="true" />
+          <div>
+            <strong>{selectedAsset.symbol}</strong>
+            <span>{selectedAsset.name || "Selected asset"}</span>
+            <small>{selectedMeta || "Loaded from portfolio"}</small>
+          </div>
+          <button type="button" onClick={() => setIsAssetPickerOpen(true)}>Change</button>
+        </section>
+      ) : null}
+
+      {isAssetPickerOpen ? <section className="two-column asset-picker">
         <form className="panel research-form" onSubmit={submitSearch}>
           <div className="panel-heading">
             <div>
@@ -210,13 +252,16 @@ export default function MarketRoute({ snapshot }: RouteProps) {
             <button type="submit" disabled={isSearching || query.trim().length < 2}>{isSearching ? "Searching" : "Search assets"}</button>
           </div>
           <div className="asset-result-list">
-            {results.map((asset) => (
-              <button type="button" className="asset-result" key={`${asset.provider}-${asset.symbol}-${asset.exchange}`} onClick={() => selectAsset(asset)}>
-                <strong>{asset.symbol}</strong>
-                <span>{asset.name}</span>
-                <small>{asset.type || "asset"} | {asset.exchange || "unknown exchange"} | {asset.currency || snapshot.baseCurrency}</small>
-              </button>
-            ))}
+            {results.map((asset) => {
+              const isSelected = selectedAsset?.symbol === asset.symbol && selectedAsset?.provider === asset.provider;
+              return (
+                <button type="button" className={isSelected ? "asset-result active" : "asset-result"} key={`${asset.provider}-${asset.symbol}-${asset.exchange}`} onClick={() => selectAsset(asset)}>
+                  <strong>{asset.symbol}</strong>
+                  <span>{asset.name}</span>
+                  <small>{asset.type || "asset"} | {asset.exchange || "unknown exchange"} | {asset.currency || snapshot.baseCurrency}</small>
+                </button>
+              );
+            })}
           </div>
         </form>
 
@@ -229,7 +274,7 @@ export default function MarketRoute({ snapshot }: RouteProps) {
           </div>
           <div className="asset-result-list">
             {snapshot.positions.map((item) => (
-              <button type="button" className="asset-result" key={item.position.id} onClick={() => selectAsset(fallbackAsset(item))}>
+              <button type="button" className={selectedPosition?.position.id === item.position.id ? "asset-result active" : "asset-result"} key={item.position.id} onClick={() => selectAsset(fallbackAsset(item))}>
                 <strong>{item.position.symbol}</strong>
                 <span>{item.position.name}</span>
                 <small>{item.currentWeightPct.toFixed(1)}% weight | {item.position.instrumentType}</small>
@@ -237,7 +282,7 @@ export default function MarketRoute({ snapshot }: RouteProps) {
             ))}
           </div>
         </section>
-      </section>
+      </section> : null}
 
       <section className="metric-grid">
         <MetricTile label="Selected price" value={Number.isFinite(displayedPrice) ? `${displayedPrice.toFixed(2)} ${displayedCurrency}` : "n/a"} helper={quote?.fetchedAt ? new Date(quote.fetchedAt).toLocaleString("de-DE") : "Loaded portfolio price"} />

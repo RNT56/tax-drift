@@ -15,7 +15,12 @@ test("positions route exposes tax lots", async ({ page }) => {
 
 test("core production workflows are exposed in React shell", async ({ page }) => {
   await page.goto("/assets");
+  await expect(page.getByLabel("Selected asset")).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Search market data providers/ })).toBeHidden();
+  await page.getByRole("button", { name: "Change asset" }).click();
   await expect(page.getByRole("heading", { name: /Search market data providers/ })).toBeVisible();
+  await page.locator(".asset-picker .asset-result").first().click();
+  await expect(page.getByRole("heading", { name: /Search market data providers/ })).toBeHidden();
   await expect(page.getByText("Tax-aware switch analysis", { exact: true })).toBeVisible();
 
   await page.goto("/data");

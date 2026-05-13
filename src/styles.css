@@ -73,7 +73,7 @@ button {
 
 .nav-list {
   display: grid;
-  gap: 18px;
+  gap: 14px;
   overflow: auto;
   padding-right: 2px;
 }
@@ -166,6 +166,7 @@ button {
 }
 
 .route-switcher {
+  display: none;
   min-width: 240px;
   max-width: 300px;
   flex: 0 0 260px;
@@ -890,6 +891,17 @@ meter {
   font-weight: 700;
 }
 
+.button-link.secondary {
+  background: #edf5ef;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .icon-button {
   width: 44px;
   padding: 0;
@@ -1123,9 +1135,60 @@ meter {
   background: #f4fbf6;
 }
 
+.asset-result.active {
+  border-color: #78b88e;
+  background: #edf8f0;
+  box-shadow: inset 3px 0 0 #2f7d4f;
+}
+
 .asset-result span,
 .asset-result small {
   color: #65736a;
+}
+
+.selected-asset-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #cde1d2;
+  border-radius: 8px;
+  background: #f4fbf6;
+  padding: 12px 14px;
+}
+
+.selected-asset-strip > svg {
+  color: #2f7d4f;
+}
+
+.selected-asset-strip div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.selected-asset-strip strong,
+.selected-asset-strip span,
+.selected-asset-strip small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-asset-strip span,
+.selected-asset-strip small {
+  color: #65736a;
+}
+
+.selected-asset-strip button {
+  border: 1px solid #c9d7cc;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #102017;
+  min-height: 36px;
+  padding: 8px 12px;
+  font-weight: 700;
 }
 
 .compact-segmented {
@@ -1547,6 +1610,7 @@ button:disabled {
   }
 
   .route-switcher {
+    display: block;
     width: 100%;
     max-width: none;
     flex-basis: auto;
@@ -1567,6 +1631,10 @@ button:disabled {
   .hero-band {
     display: grid;
     align-items: start;
+  }
+
+  .hero-actions {
+    justify-content: start;
   }
 
   .detail-panel {
@@ -1637,5 +1705,14 @@ button:disabled {
     height: 42px;
     grid-template-columns: auto auto;
     gap: 6px;
+  }
+
+  .selected-asset-strip {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .selected-asset-strip button {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 }
