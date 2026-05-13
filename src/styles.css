@@ -72,6 +72,7 @@ button {
 }
 
 .mobile-menu-button,
+.mobile-appbar,
 .mobile-bottom-nav,
 .mobile-menu-backdrop {
   display: none;
@@ -1571,25 +1572,36 @@ button:disabled {
   }
 
   .sidebar {
-    position: sticky;
+    position: fixed;
+    left: 0;
     top: 0;
-    z-index: 30;
-    height: auto;
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 10px 12px;
+    bottom: 0;
+    z-index: 120;
+    width: min(86vw, 360px);
+    height: 100dvh;
+    transform: translateX(-105%);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 0.18s ease, visibility 0.18s ease;
+    padding: calc(14px + env(safe-area-inset-top)) 14px calc(18px + env(safe-area-inset-bottom));
+    box-shadow: 22px 0 60px rgba(16, 32, 23, 0.28);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
   }
 
   .brand {
     min-width: 0;
     padding: 0;
+    padding-right: 52px;
     border-bottom: 0;
   }
 
   .brand small {
-    display: none;
+    display: block;
   }
 
   .mobile-menu-button {
@@ -1604,10 +1616,16 @@ button:disabled {
     flex: 0 0 auto;
   }
 
+  .sidebar > .mobile-menu-button {
+    position: absolute;
+    right: 14px;
+    top: calc(14px + env(safe-area-inset-top));
+  }
+
   .mobile-menu-backdrop {
     position: fixed;
     inset: 0;
-    z-index: 25;
+    z-index: 110;
     display: block;
     border: 0;
     background: rgba(16, 32, 23, 0.38);
@@ -1615,43 +1633,87 @@ button:disabled {
   }
 
   .nav-list {
-    display: none;
-  }
-
-  .sidebar.mobile-open .nav-list {
-    position: fixed;
-    left: 12px;
-    right: 12px;
-    top: 66px;
-    z-index: 35;
-    max-height: min(70vh, 620px);
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 14px;
+    gap: 16px;
     overflow: auto;
-    padding: 14px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 8px;
-    background: #102017;
-    box-shadow: 0 22px 60px rgba(16, 32, 23, 0.32);
+    padding: 2px 2px 14px;
   }
 
-  .sidebar.mobile-open .nav-section {
+  .nav-section {
     align-content: start;
     gap: 6px;
   }
 
-  .sidebar.mobile-open .nav-item {
+  .nav-item {
     justify-content: start;
-    min-height: 40px;
+    min-height: 44px;
   }
 
-  .sidebar.mobile-open .nav-item span {
+  .nav-item span {
     display: inline;
   }
 
-  .sidebar.mobile-open .nav-chevron {
+  .nav-chevron {
     display: block;
+  }
+
+  .mobile-appbar {
+    position: sticky;
+    top: 0;
+    z-index: 90;
+    min-height: calc(62px + env(safe-area-inset-top));
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: calc(10px + env(safe-area-inset-top)) 12px 10px;
+    border-bottom: 1px solid #dfe4db;
+    background: rgba(245, 246, 241, 0.96);
+    backdrop-filter: blur(14px);
+  }
+
+  .mobile-appbar .mobile-menu-button {
+    border-color: #cdd8cf;
+    background: #ffffff;
+    color: #102017;
+  }
+
+  .mobile-appbar-title {
+    min-width: 0;
+    display: grid;
+    gap: 1px;
+  }
+
+  .mobile-appbar-title strong {
+    color: #65736a;
+    font-size: 0.72rem;
+    line-height: 1;
+  }
+
+  .mobile-appbar-title h1 {
+    margin: 0;
+    color: #17211b;
+    font-size: 1.1rem;
+    line-height: 1.15;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-appbar .auth-chip {
+    max-width: 76px;
+  }
+
+  .mobile-appbar .auth-button {
+    width: 40px;
+    min-height: 40px;
+    padding: 0;
+    overflow: hidden;
+    color: transparent;
+  }
+
+  .mobile-appbar .auth-button svg {
+    color: #102017;
   }
 
   .mobile-bottom-nav {
@@ -1701,23 +1763,12 @@ button:disabled {
     color: #ffffff;
   }
 
-  .nav-chevron {
+  .topbar {
     display: none;
   }
 
-  .topbar {
-    position: static;
-    align-items: start;
-    flex-direction: column;
-    padding: 18px;
-  }
-
-  .topbar-subtitle {
-    max-width: none;
-  }
-
   main {
-    padding: 18px;
+    padding: 16px;
   }
 
   .hero-band,
@@ -1779,11 +1830,7 @@ button:disabled {
   }
 
   .nav-list {
-    display: none;
-  }
-
-  .sidebar.mobile-open .nav-list {
-    grid-template-columns: 1fr;
+    display: grid;
   }
 
   .nav-group-title {

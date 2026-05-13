@@ -322,6 +322,22 @@ export function App() {
         </nav>
       </aside>
       <div className="workspace">
+        <header className="mobile-appbar">
+          <button
+            className="mobile-menu-button"
+            type="button"
+            aria-label="Open navigation menu"
+            aria-expanded={isMobileMenuOpen}
+            onClick={() => setIsMobileMenuOpen(true)}
+          >
+            <Menu size={20} aria-hidden="true" />
+          </button>
+          <div className="mobile-appbar-title">
+            <strong>TaxSwitch</strong>
+            <h1>{activeRouteMeta.label}</h1>
+          </div>
+          <AuthControl auth={auth} onAuthUpdate={setAuth} />
+        </header>
         <header className="topbar">
           <div>
             <p className="eyebrow">Germany-first portfolio architecture</p>
