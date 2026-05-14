@@ -396,7 +396,6 @@ export function App() {
           </div>
         </header>
         <main>
-          {workspaceState.warning ? <div className="notice-bar">{workspaceState.warning}</div> : null}
           <Suspense fallback={<div className="loading-panel">Loading portfolio workspace...</div>}>
             <Screen key={activeRoute} route={activeRoute} snapshot={snapshot} actionPlan={actionPlan} accessToken={accessToken} onWorkspaceRefresh={() => refreshWorkspace()} />
           </Suspense>

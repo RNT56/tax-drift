@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Calculator, CheckCircle2, RefreshCw, SearchCheck } from "lucide-react";
 import { HistoryLineChart } from "../components/Charts";
 import { CustomSelect } from "../components/CustomSelect";
@@ -42,6 +42,9 @@ export default function MarketRoute({ snapshot }: RouteProps) {
   const [isLoadingMarket, setIsLoadingMarket] = useState(false);
   const [error, setError] = useState("");
   const [marketStatus, setMarketStatus] = useState("");
+  const searchRequestId = useRef(0);
+  const trimmedQuery = query.trim();
+  const canSearchAssets = trimmedQuery.length >= 2;
   const [calc, setCalc] = useState(() => {
     const price = firstPosition ? minorToNumber(firstPosition.position.price) : 0;
     const costBasis = firstPosition ? minorToNumber(firstPosition.position.costBasis) : 0;
@@ -146,21 +149,56 @@ export default function MarketRoute({ snapshot }: RouteProps) {
     }
   }
 
+  const runAssetSearch = useCallback(async (announce = false) => {
+    const searchQuery = query.trim();
+    if (searchQuery.length < 2) {
+      setResults([]);
+      return;
+    }
+    const requestId = searchRequestId.current + 1;
+    searchRequestId.current = requestId;
+    setError("");
+    if (announce) setMarketStatus("");
+    setIsSearching(true);
+    try {
+      const response = await searchSymbols(searchQuery, { type: typeFilter, limit: 12 });
+      if (requestId !== searchRequestId.current) return;
+      setResults(response.results);
+      if (announce) {
+        setMarketStatus(response.results.length ? `Found ${response.results.length} assets from ${response.source || "search"}.` : "No matching assets found.");
+      }
+    } catch (caught) {
+      if (requestId !== searchRequestId.current) return;
+      setError(caught instanceof Error ? caught.message : "Symbol search failed.");
+    } finally {
+      if (requestId === searchRequestId.current) setIsSearching(false);
+    }
+  }, [query, typeFilter]);
+
+  useEffect(() => {
+    if (!isAssetPickerOpen) return;
+    if (!canSearchAssets) {
+      searchRequestId.current += 1;
+      setIsSearching(false);
+      setResults([]);
+      return;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (!cancelled) void runAssetSearch(false);
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [canSearchAssets, isAssetPickerOpen, runAssetSearch, trimmedQuery]);
+
   async function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsAssetPickerOpen(true);
-    setError("");
-    setMarketStatus("");
-    setIsSearching(true);
-    try {
-      const response = await searchSymbols(query, { type: typeFilter, limit: 12 });
-      setResults(response.results);
-      setMarketStatus(response.results.length ? `Found ${response.results.length} assets from ${response.source || "search"}.` : "No matching assets found.");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Symbol search failed.");
-    } finally {
-      setIsSearching(false);
-    }
+    await runAssetSearch(true);
   }
 
   function selectAsset(asset: SymbolSearchResult) {
@@ -232,7 +270,7 @@ export default function MarketRoute({ snapshot }: RouteProps) {
           <div className="field-grid two">
             <label>
               <span>Symbol or name</span>
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="AAPL, MSCI World, DAX" />
+              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="AAPL, MSCI World, DAX" autoComplete="off" />
             </label>
             <CustomSelect
               label="Asset type"
@@ -249,9 +287,11 @@ export default function MarketRoute({ snapshot }: RouteProps) {
             />
           </div>
           <div className="button-row">
-            <button type="submit" disabled={isSearching || query.trim().length < 2}>{isSearching ? "Searching" : "Search assets"}</button>
+            <button type="submit" disabled={isSearching || !canSearchAssets}>{isSearching ? "Searching" : "Search now"}</button>
           </div>
           <div className="asset-result-list">
+            {isSearching ? <p className="empty-copy">Searching assets...</p> : null}
+            {!isSearching && canSearchAssets && !results.length ? <p className="empty-copy">No matching assets found.</p> : null}
             {results.map((asset) => {
               const isSelected = selectedAsset?.symbol === asset.symbol && selectedAsset?.provider === asset.provider;
               return (
